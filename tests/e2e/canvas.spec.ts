@@ -349,3 +349,92 @@ test('extension activates and provides webview HTML', async () => {
 
   await app.close();
 });
+
+test('layout mode toggle button switches modes', async () => {
+  const app = await launchApp();
+  const window = await app.firstWindow();
+  await window.waitForLoadState('domcontentloaded');
+  await window.waitForSelector('.canvas-root', { timeout: 15_000 });
+
+  // Toggle to grid via the title-bar button
+  await window.getByRole('button', { name: 'Grid mode' }).click();
+
+  // The grid layout root has a different className
+  await window.waitForSelector('.grid-layout', { timeout: 5_000 });
+
+  // Switch back
+  await window.getByRole('button', { name: 'Canvas mode' }).click();
+  await window.waitForFunction(() => !document.querySelector('.grid-layout'));
+
+  await app.close();
+});
+
+test('cmd+shift+L toggles layout mode', async () => {
+  const app = await launchApp();
+  const window = await app.firstWindow();
+  await window.waitForLoadState('domcontentloaded');
+  await window.waitForSelector('.canvas-root', { timeout: 15_000 });
+
+  // Determine starting mode from the DOM
+  const before = await window.evaluate(() => {
+    return document.querySelector('.grid-layout') ? 'grid' : 'canvas';
+  });
+
+  // Toggle via the keyboard shortcut
+  await window.keyboard.press('Meta+Shift+l');
+  await window.waitForTimeout(200);
+
+  const afterMode = await window.evaluate(() => {
+    return document.querySelector('.grid-layout') ? 'grid' : 'canvas';
+  });
+
+  expect(afterMode).toBe(before === 'canvas' ? 'grid' : 'canvas');
+
+  await app.close();
+});
+
+test('grid mode tiles panels and switching back preserves them', async () => {
+  const app = await launchApp();
+  const window = await app.firstWindow();
+  await window.waitForLoadState('domcontentloaded');
+  await window.waitForSelector('.canvas-root', { timeout: 15_000 });
+  await window.waitForFunction(() => !!(window as any).canvasAPI?.loadCanvas, undefined, { timeout: 15_000 });
+
+  // Add one panel via right-click → Terminal. The .first() selector
+  // matches the menu option (no panel with that title exists yet).
+  await window.evaluate(() => {
+    const canvas = document.querySelector('.canvas-root') as HTMLElement | null;
+    if (!canvas) throw new Error('no canvas');
+    const rect = canvas.getBoundingClientRect();
+    canvas.dispatchEvent(
+      new MouseEvent('contextmenu', {
+        bubbles: true,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+      })
+    );
+  });
+  await window.getByText('Terminal', { exact: true }).first().click();
+  await window.waitForTimeout(500);
+
+  // Sanity: one panel exists in canvas mode
+  await expect(window.locator('.canvas-root .panel')).toHaveCount(1);
+
+  // Toggle to grid
+  await window.getByRole('button', { name: 'Grid mode' }).click();
+  await window.waitForSelector('.grid-layout');
+
+  // The panel should still be visible inside the grid
+  const panelCount = await window.locator('.grid-layout .panel').count();
+  expect(panelCount).toBe(1);
+
+  // Toggle back to canvas
+  await window.getByRole('button', { name: 'Canvas mode' }).click();
+  await window.waitForFunction(() => !document.querySelector('.grid-layout'));
+
+  // Panel still there
+  const canvasPanelCount = await window.locator('.canvas-root .panel').count();
+  expect(canvasPanelCount).toBe(1);
+
+  await app.close();
+});

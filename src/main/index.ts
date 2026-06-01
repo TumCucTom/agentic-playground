@@ -106,6 +106,7 @@ function emptyCanvasState(): CanvasState {
     selectedPanelIds: [],
     workspaceName: 'default',
     lastUpdated: Date.now(),
+    layoutMode: 'canvas',
   };
 }
 
