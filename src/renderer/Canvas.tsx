@@ -238,9 +238,77 @@ export const Canvas: React.FC<CanvasProps> = ({ background }) => {
           movePanel(drag.panelId, { x: result.rect.x, y: result.rect.y });
         }
       } else if (drag.type === 'resize' && drag.panelId) {
-        const newW = Math.max(150, (drag.startPanelW ?? 0) + dx / viewport.zoom);
-        const newH = Math.max(100, (drag.startPanelH ?? 0) + dy / viewport.zoom);
-        resizePanel(drag.panelId, newW, newH);
+        const MIN_W = 150;
+        const MIN_H = 100;
+        const startW = drag.startPanelW ?? 0;
+        const startH = drag.startPanelH ?? 0;
+        const startX = drag.startPanelX ?? 0;
+        const startY = drag.startPanelY ?? 0;
+        const dxRaw = dx / viewport.zoom;
+        const dyRaw = dy / viewport.zoom;
+        const handle = drag.resizeHandle;
+
+        // Compute new geometry from the handle direction. Edges and
+        // corners that grow toward the panel origin (n, w, nw, ne, sw)
+        // also push the position so the opposite edge stays pinned.
+        let newW = startW;
+        let newH = startH;
+        let newX = startX;
+        let newY = startY;
+        switch (handle) {
+          case 'se':
+            newW = startW + dxRaw;
+            newH = startH + dyRaw;
+            break;
+          case 'sw':
+            newW = startW - dxRaw;
+            newH = startH + dyRaw;
+            newX = startX + dxRaw;
+            break;
+          case 'ne':
+            newW = startW + dxRaw;
+            newH = startH - dyRaw;
+            newY = startY + dyRaw;
+            break;
+          case 'nw':
+            newW = startW - dxRaw;
+            newH = startH - dyRaw;
+            newX = startX + dxRaw;
+            newY = startY + dyRaw;
+            break;
+          case 'e':
+            newW = startW + dxRaw;
+            break;
+          case 'w':
+            newW = startW - dxRaw;
+            newX = startX + dxRaw;
+            break;
+          case 's':
+            newH = startH + dyRaw;
+            break;
+          case 'n':
+            newH = startH - dyRaw;
+            newY = startY + dyRaw;
+            break;
+        }
+
+        // Clamp to minimums, then re-pin the opposite edge so the
+        // panel doesn't visually "shrink past" its minimum.
+        if (newW < MIN_W) newW = MIN_W;
+        if (newH < MIN_H) newH = MIN_H;
+        if (handle === 'w' || handle === 'nw' || handle === 'sw') {
+          newX = startX + startW - newW;
+        }
+        if (handle === 'n' || handle === 'nw' || handle === 'ne') {
+          newY = startY + startH - newH;
+        }
+
+        if (newW !== startW || newH !== startH) {
+          resizePanel(drag.panelId, newW, newH);
+        }
+        if (newX !== startX || newY !== startY) {
+          movePanel(drag.panelId, { x: newX, y: newY });
+        }
       }
     };
 
@@ -371,6 +439,8 @@ export const Canvas: React.FC<CanvasProps> = ({ background }) => {
                 startX: e.clientX,
                 startY: e.clientY,
                 panelId: panel.id,
+                startPanelX: panel.position.x,
+                startPanelY: panel.position.y,
                 startPanelW: panel.size.width,
                 startPanelH: panel.size.height,
                 resizeHandle: handle,

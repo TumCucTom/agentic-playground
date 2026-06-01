@@ -198,10 +198,59 @@ export const PanelView: React.FC<PanelViewProps> = ({
 
       <Tooltip label={resizeTooltipLabel} side="left">
         <ResizeHandle
-          position="se"
+          direction="nw"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onResizeStart(e, 'nw');
+          }}
+        />
+        <ResizeHandle
+          direction="n"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onResizeStart(e, 'n');
+          }}
+        />
+        <ResizeHandle
+          direction="ne"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onResizeStart(e, 'ne');
+          }}
+        />
+        <ResizeHandle
+          direction="e"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onResizeStart(e, 'e');
+          }}
+        />
+        <ResizeHandle
+          direction="se"
           onMouseDown={(e) => {
             e.stopPropagation();
             onResizeStart(e, 'se');
+          }}
+        />
+        <ResizeHandle
+          direction="s"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onResizeStart(e, 's');
+          }}
+        />
+        <ResizeHandle
+          direction="sw"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onResizeStart(e, 'sw');
+          }}
+        />
+        <ResizeHandle
+          direction="w"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onResizeStart(e, 'w');
           }}
         />
       </Tooltip>
@@ -230,43 +279,40 @@ const PanelContent: React.FC<{ panel: PanelType }> = ({ panel }) => {
   }
 };
 
+type ResizeDirection = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
+
 const ResizeHandle: React.FC<{
-  position: 'se' | 'e' | 's';
+  direction: ResizeDirection;
   onMouseDown: (e: React.MouseEvent) => void;
-}> = ({ position, onMouseDown }) => {
-  const style: React.CSSProperties =
-    position === 'se'
-      ? {
-          position: 'absolute',
-          right: 0,
-          bottom: 0,
-          width: 12,
-          height: 12,
-          cursor: 'nwse-resize',
-        }
-      : position === 'e'
-      ? {
-          position: 'absolute',
-          right: 0,
-          top: 28,
-          bottom: 12,
-          width: 6,
-          cursor: 'ew-resize',
-        }
-      : {
-          position: 'absolute',
-          left: 0,
-          right: 12,
-          bottom: 0,
-          height: 6,
-          cursor: 'ns-resize',
-        };
+}> = ({ direction, onMouseDown }) => {
+  // Corners are 12×12, edges are 6px thick. N/NW/NE live below the
+  // 28px title bar so they don't fight the title-bar drag.
+  const style: React.CSSProperties = (() => {
+    switch (direction) {
+      case 'nw':
+        return { position: 'absolute', top: 28, left: 0, width: 12, height: 12, cursor: 'nwse-resize' };
+      case 'n':
+        return { position: 'absolute', top: 28, left: 12, right: 12, height: 6, cursor: 'ns-resize' };
+      case 'ne':
+        return { position: 'absolute', top: 28, right: 0, width: 12, height: 12, cursor: 'nesw-resize' };
+      case 'e':
+        return { position: 'absolute', right: 0, top: 28, bottom: 12, width: 6, cursor: 'ew-resize' };
+      case 'se':
+        return { position: 'absolute', right: 0, bottom: 0, width: 12, height: 12, cursor: 'nwse-resize' };
+      case 's':
+        return { position: 'absolute', left: 12, right: 12, bottom: 0, height: 6, cursor: 'ns-resize' };
+      case 'sw':
+        return { position: 'absolute', bottom: 0, left: 0, width: 12, height: 12, cursor: 'nesw-resize' };
+      case 'w':
+        return { position: 'absolute', left: 0, top: 28, bottom: 12, width: 6, cursor: 'ew-resize' };
+    }
+  })();
 
   return (
     <div
-      className={`resize-handle resize-${position}`}
+      className={`resize-handle resize-${direction}`}
       onMouseDown={onMouseDown}
-      style={style}
+      style={{ ...style, zIndex: 1 }}
     />
   );
 };
