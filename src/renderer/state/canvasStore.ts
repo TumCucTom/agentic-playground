@@ -1,5 +1,12 @@
 import { create } from 'zustand';
 import { CanvasState, Panel, PanelPosition, Viewport, LayoutMode, SplitTree } from '../../shared/types';
+import {
+  allLeaves,
+  firstLeaf,
+  rectsFromTree,
+  resizeDivider as resizeDividerTree,
+  splitLeaf,
+} from '../layout/splitTree';
 
 const MAX_HISTORY = 50;
 const HISTORY_COALESCE_MS = 100;
@@ -253,9 +260,57 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
       return { panels, viewport, selectedPanelIds, workspaceName, lastUpdated, layoutMode, gridTree };
     },
 
-    setLayoutMode: (_mode) => { /* implemented in Task 5 */ },
+    setLayoutMode: (mode) => {
+      const s = get();
+      if (s.layoutMode === mode) return;
+      pushHistory();
+      if (mode === 'grid') {
+        // Canvas → Grid: build a left-leaning tree
+        if (s.panels.length === 0) {
+          set({ layoutMode: 'grid', gridTree: undefined, isDirty: true });
+          return;
+        }
+        const sorted = [...s.panels].sort((a, b) => a.zOrder - b.zOrder);
+        let tree: SplitTree = { kind: 'leaf', panelId: sorted[0].id };
+        let dir: 'h' | 'v' = 'v';
+        for (let i = 1; i < sorted.length; i++) {
+          // Always split the leftmost leaf so growth is predictable.
+          const leftmost = firstLeaf(tree);
+          if (!leftmost) break;
+          tree = splitLeaf(tree, leftmost, sorted[i].id, dir);
+          dir = dir === 'v' ? 'h' : 'v';
+        }
+        set({ layoutMode: 'grid', gridTree: tree, isDirty: true });
+      } else {
+        // Grid → Canvas: write rects into panel position/size
+        if (!s.gridTree) {
+          set({ layoutMode: 'canvas', gridTree: undefined, isDirty: true });
+          return;
+        }
+        const vw = window.innerWidth;
+        const vh = window.innerHeight;
+        const rects = rectsFromTree(s.gridTree, { x: 0, y: 0, w: vw, h: vh });
+        const panels = s.panels.map((p) => {
+          const r = rects.get(p.id);
+          if (!r) return p;
+          // Translate from viewport coords to canvas coords
+          return {
+            ...p,
+            position: { x: r.x / s.viewport.zoom + s.viewport.x, y: r.y / s.viewport.zoom + s.viewport.y },
+            size: { width: r.w / s.viewport.zoom, height: r.h / s.viewport.zoom },
+          };
+        });
+        set({ layoutMode: 'canvas', gridTree: undefined, panels, isDirty: true });
+      }
+    },
     splitFocused: (_dir, _panel) => { /* implemented in Task 11 */ },
-    resizeDivider: (_path, _ratio) => { /* implemented in Task 5 */ },
+    resizeDivider: (path, ratio) => {
+      pushHistory();
+      set((s) => {
+        if (!s.gridTree) return s;
+        return { gridTree: resizeDividerTree(s.gridTree, path, ratio), isDirty: true };
+      });
+    },
     closeLeaf: (_id) => { /* implemented in Task 11 */ },
 
     undo: () => {

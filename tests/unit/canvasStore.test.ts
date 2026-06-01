@@ -138,3 +138,65 @@ describe('layout mode defaults', () => {
     expect(useCanvasStore.getState().layoutMode).toBe('grid');
   });
 });
+
+describe('layout mode transitions', () => {
+  beforeEach(() => {
+    useCanvasStore.setState({
+      panels: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+      selectedPanelIds: [],
+      past: [],
+      future: [],
+      isDirty: false,
+      layoutMode: 'canvas',
+      gridTree: undefined,
+    });
+    // Vitest runs in node; the grid→canvas transition reads window size.
+    (global as any).window = (global as any).window ?? {};
+    (global as any).window.innerWidth = 1024;
+    (global as any).window.innerHeight = 768;
+  });
+
+  it('canvas → grid builds a tree containing every panel', () => {
+    useCanvasStore.getState().addPanel(makePanel('a'));
+    useCanvasStore.getState().addPanel(makePanel('b'));
+    useCanvasStore.getState().addPanel(makePanel('c'));
+    useCanvasStore.getState().setLayoutMode('grid');
+    const { gridTree, layoutMode } = useCanvasStore.getState();
+    expect(layoutMode).toBe('grid');
+    expect(gridTree).toBeDefined();
+    const ids: string[] = [];
+    function collect(t: any): void {
+      if (t.kind === 'leaf') ids.push(t.panelId);
+      else { collect(t.a); collect(t.b); }
+    }
+    collect(gridTree);
+    expect(ids.sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('grid → canvas writes rects into panels', () => {
+    useCanvasStore.getState().addPanel(makePanel('a'));
+    useCanvasStore.getState().addPanel(makePanel('b'));
+    useCanvasStore.getState().setLayoutMode('grid');
+    useCanvasStore.getState().setLayoutMode('canvas');
+    const { layoutMode, gridTree, panels } = useCanvasStore.getState();
+    expect(layoutMode).toBe('canvas');
+    expect(gridTree).toBeUndefined();
+    // Panels should have non-zero size after the round-trip
+    expect(panels[0].size.width).toBeGreaterThan(0);
+    expect(panels[0].size.height).toBeGreaterThan(0);
+  });
+
+  it('setLayoutMode is idempotent', () => {
+    useCanvasStore.getState().setLayoutMode('canvas');
+    const pastLength = useCanvasStore.getState().past.length;
+    useCanvasStore.getState().setLayoutMode('canvas');
+    expect(useCanvasStore.getState().past.length).toBe(pastLength);
+  });
+
+  it('empty workspace switching to grid has undefined gridTree', () => {
+    useCanvasStore.getState().setLayoutMode('grid');
+    expect(useCanvasStore.getState().gridTree).toBeUndefined();
+    expect(useCanvasStore.getState().layoutMode).toBe('grid');
+  });
+});
