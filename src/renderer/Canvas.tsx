@@ -42,6 +42,7 @@ export const Canvas: React.FC<CanvasProps> = ({ background }) => {
   const movePanel = useCanvasStore((s) => s.movePanel);
   const resizePanel = useCanvasStore((s) => s.resizePanel);
   const addPanel = useCanvasStore((s) => s.addPanel);
+  const toggleMaximize = useCanvasStore((s) => s.toggleMaximize);
 
   const [contextMenu, setContextMenu] = React.useState<{
     x: number;
@@ -369,6 +370,8 @@ export const Canvas: React.FC<CanvasProps> = ({ background }) => {
                 resizeHandle: handle,
               };
             }}
+            onTitleDoubleClick={() => toggleMaximize(panel.id)}
+            resizeTooltipLabel="Drag to resize · Double-click title to maximize"
           />
         ))}
       </div>

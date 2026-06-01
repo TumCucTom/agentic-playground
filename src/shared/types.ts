@@ -70,6 +70,12 @@ export interface Panel {
   state: PanelState;
   zOrder: number;
   content: ContentRef;
+  // Dbl-click maximize (canvas mode only). When set, the panel is
+  // stretched to fill the visible canvas; the previous geometry is
+  // remembered here for restore.
+  maximized?: boolean;
+  savedPosition?: PanelPosition;
+  savedSize?: PanelSize;
 }
 
 export interface Viewport {

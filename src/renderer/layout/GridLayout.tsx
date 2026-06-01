@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useCanvasStore } from '../state/canvasStore';
 import { PanelView } from '../Panel';
 import { SplitTree } from '../../shared/types';
-import { rectsFromTree } from './splitTree';
+import { rectsFromTree, findRightDividerPath, findBottomDividerPath } from './splitTree';
 import { SplitDivider } from './SplitDivider';
 
 interface DividerDescriptor {
@@ -57,6 +57,7 @@ export const GridLayout: React.FC = () => {
   const gridTree = useCanvasStore((s) => s.gridTree);
   const selectedPanelIds = useCanvasStore((s) => s.selectedPanelIds);
   const focusPanel = useCanvasStore((s) => s.focusPanel);
+  const resizeDivider = useCanvasStore((s) => s.resizeDivider);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState({ w: window.innerWidth, h: window.innerHeight });
@@ -81,6 +82,51 @@ export const GridLayout: React.FC = () => {
     if (!gridTree) return [];
     return collectDividers(gridTree, { x: 0, y: 0, w: size.w, h: size.h });
   }, [gridTree, size]);
+
+  // A descriptor for a divider can be looked up by its JSON path. Used by
+  // the SE-handle drag handler to translate pointer motion into ratio
+  // changes for the right and bottom dividers of a panel.
+  const dividersByPath = useMemo(() => {
+    const m = new Map<string, DividerDescriptor>();
+    for (const d of dividers) m.set(d.path.join('-') + '-' + d.dir, d);
+    return m;
+  }, [dividers]);
+
+  const handleResizeStart = (panelId: string) => (e: React.MouseEvent, handle: string) => {
+    if (handle !== 'se') return;
+    if (!gridTree) return;
+    e.preventDefault();
+    const rightPath = findRightDividerPath(gridTree, panelId);
+    const bottomPath = findBottomDividerPath(gridTree, panelId);
+    if (!rightPath && !bottomPath) return;
+    const rightDesc = rightPath ? dividersByPath.get(rightPath.join('-') + '-v') ?? null : null;
+    const bottomDesc = bottomPath ? dividersByPath.get(bottomPath.join('-') + '-h') ?? null : null;
+    if (!rightDesc && !bottomDesc) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    const onMove = (ev: MouseEvent) => {
+      const dx = ev.clientX - startX;
+      const dy = ev.clientY - startY;
+      if (rightDesc) {
+        const newPosition = rightDesc.position + dx;
+        const newRatio = (newPosition - rightDesc.containerStart) / rightDesc.containerSize;
+        resizeDivider(rightDesc.path, newRatio);
+      }
+      if (bottomDesc) {
+        const newPosition = bottomDesc.position + dy;
+        const newRatio = (newPosition - bottomDesc.containerStart) / bottomDesc.containerSize;
+        resizeDivider(bottomDesc.path, newRatio);
+      }
+    };
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
 
   return (
     <div
@@ -121,7 +167,7 @@ export const GridLayout: React.FC = () => {
             isSelected={selectedPanelIds.includes(panel.id)}
             onFocus={() => focusPanel(panel.id)}
             onDragStart={() => {}}
-            onResizeStart={() => {}}
+            onResizeStart={handleResizeStart(panel.id)}
             geometryOverride={{ x: r.x, y: r.y, width: r.w, height: r.h }}
             dragDisabled
           />

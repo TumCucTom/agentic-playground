@@ -1,5 +1,6 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { useCanvasStore } from '../state/canvasStore';
+import { Tooltip } from '../Tooltip';
 
 interface SplitDividerProps {
   path: number[];
@@ -73,13 +74,15 @@ export const SplitDivider: React.FC<SplitDividerProps> = ({
       };
 
   return (
-    <div
-      style={style}
-      onPointerDown={onPointerDown}
-      onPointerUp={onPointerUp}
-      onPointerMove={onPointerMove}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-    />
+    <Tooltip label="Drag to resize split" side={dir === 'v' ? 'right' : 'bottom'}>
+      <div
+        style={style}
+        onPointerDown={onPointerDown}
+        onPointerUp={onPointerUp}
+        onPointerMove={onPointerMove}
+        onMouseEnter={() => setHover(true)}
+        onMouseLeave={() => setHover(false)}
+      />
+    </Tooltip>
   );
 };

@@ -43,6 +43,7 @@ export interface CanvasStore extends CanvasState {
   splitFocused: (dir: 'h' | 'v', newPanel: Panel) => void;
   resizeDivider: (leafPath: number[], ratio: number) => void;
   closeLeaf: (panelId: string) => void;
+  toggleMaximize: (panelId: string) => void;
   markClean: () => void;
   serialize: () => CanvasState;
   undo: () => void;
@@ -344,6 +345,51 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
           gridTree: tree,
           isDirty: true,
         };
+      });
+    },
+
+    toggleMaximize: (panelId) => {
+      const s = get();
+      // Maximize is a canvas-mode concept; in grid mode the panel already
+      // fills its tile.
+      if (s.layoutMode !== 'canvas') return;
+      const panel = s.panels.find((p) => p.id === panelId);
+      if (!panel) return;
+      pushHistory();
+      if (panel.maximized && panel.savedPosition && panel.savedSize) {
+        set({
+          panels: s.panels.map((p) =>
+            p.id === panelId
+              ? {
+                  ...p,
+                  position: p.savedPosition!,
+                  size: p.savedSize!,
+                  maximized: false,
+                  savedPosition: undefined,
+                  savedSize: undefined,
+                }
+              : p
+          ),
+          isDirty: true,
+        });
+        return;
+      }
+      const w = window.innerWidth / s.viewport.zoom;
+      const h = window.innerHeight / s.viewport.zoom;
+      set({
+        panels: s.panels.map((p) =>
+          p.id === panelId
+            ? {
+                ...p,
+                savedPosition: p.position,
+                savedSize: p.size,
+                position: { x: s.viewport.x, y: s.viewport.y },
+                size: { width: w, height: h },
+                maximized: true,
+              }
+            : p
+        ),
+        isDirty: true,
       });
     },
 

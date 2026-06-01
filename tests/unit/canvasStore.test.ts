@@ -200,3 +200,66 @@ describe('layout mode transitions', () => {
     expect(useCanvasStore.getState().layoutMode).toBe('grid');
   });
 });
+
+describe('toggleMaximize', () => {
+  beforeEach(() => {
+    // Make sure window dimensions are available — toggleMaximize reads them.
+    (global as any).window = (global as any).window ?? {};
+    (global as any).window.innerWidth = 1024;
+    (global as any).window.innerHeight = 768;
+    // Set up a fresh store in canvas mode with a single panel.
+    useCanvasStore.setState({
+      panels: [makePanel('a', { position: { x: 100, y: 100 }, size: { width: 400, height: 300 } })],
+      viewport: { x: 50, y: 50, zoom: 1 },
+      selectedPanelIds: [],
+      past: [],
+      future: [],
+      layoutMode: 'canvas',
+      gridTree: undefined,
+    });
+  });
+
+  it('stretches the panel to fill the visible canvas and saves its old geometry', () => {
+    // window.innerWidth/Height are mocked in vitest setup. Defaults to 1024/768.
+    useCanvasStore.getState().toggleMaximize('a');
+    const panel = useCanvasStore.getState().panels.find((p) => p.id === 'a')!;
+    expect(panel.maximized).toBe(true);
+    expect(panel.position).toEqual({ x: 50, y: 50 });
+    expect(panel.size).toEqual({ width: 1024, height: 768 });
+    expect(panel.savedPosition).toEqual({ x: 100, y: 100 });
+    expect(panel.savedSize).toEqual({ width: 400, height: 300 });
+  });
+
+  it('restores the panel to its pre-maximize geometry on second call', () => {
+    useCanvasStore.getState().toggleMaximize('a');
+    useCanvasStore.getState().toggleMaximize('a');
+    const panel = useCanvasStore.getState().panels.find((p) => p.id === 'a')!;
+    expect(panel.maximized).toBe(false);
+    expect(panel.position).toEqual({ x: 100, y: 100 });
+    expect(panel.size).toEqual({ width: 400, height: 300 });
+    expect(panel.savedPosition).toBeUndefined();
+    expect(panel.savedSize).toBeUndefined();
+  });
+
+  it('is a no-op in grid mode', () => {
+    useCanvasStore.getState().setLayoutMode('grid');
+    const before = useCanvasStore.getState().panels[0];
+    useCanvasStore.getState().toggleMaximize('a');
+    const after = useCanvasStore.getState().panels[0];
+    expect(after).toBe(before); // same reference → no change
+  });
+
+  it('is a no-op when the panel id is unknown', () => {
+    useCanvasStore.getState().toggleMaximize('z');
+    const panel = useCanvasStore.getState().panels.find((p) => p.id === 'a')!;
+    expect(panel.maximized).toBeUndefined();
+  });
+
+  it('respects viewport zoom when computing maximize size', async () => {
+    await wait(COALESCE_GAP);
+    useCanvasStore.getState().zoomViewport(0.5); // zoom 0.5
+    useCanvasStore.getState().toggleMaximize('a');
+    const panel = useCanvasStore.getState().panels.find((p) => p.id === 'a')!;
+    expect(panel.size).toEqual({ width: 2048, height: 1536 });
+  });
+});

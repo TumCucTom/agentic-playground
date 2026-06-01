@@ -16,8 +16,12 @@ interface PanelViewProps {
   onFocus: () => void;
   onDragStart: (e: React.MouseEvent) => void;
   onResizeStart: (e: React.MouseEvent, handle: string) => void;
+  onTitleDoubleClick?: () => void;
   geometryOverride?: { x: number; y: number; width: number; height: number };
   dragDisabled?: boolean;
+  // Used for the SE handle tooltip text — "Drag to resize · Double-click
+  // to maximize" in canvas mode, "Drag to resize" in grid mode.
+  resizeTooltipLabel?: string;
 }
 
 export const PanelView: React.FC<PanelViewProps> = ({
@@ -26,8 +30,10 @@ export const PanelView: React.FC<PanelViewProps> = ({
   onFocus,
   onDragStart,
   onResizeStart,
+  onTitleDoubleClick,
   geometryOverride,
   dragDisabled = false,
+  resizeTooltipLabel = 'Drag to resize',
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const deletePanel = useCanvasStore((s) => s.deletePanel);
@@ -99,6 +105,10 @@ export const PanelView: React.FC<PanelViewProps> = ({
       <div
         className="panel-titlebar"
         onMouseDown={handleTitleBarMouseDown}
+        onDoubleClick={(e) => {
+          e.stopPropagation();
+          onTitleDoubleClick?.();
+        }}
         style={{
           height: 28,
           backgroundColor: '#252525',
@@ -187,7 +197,7 @@ export const PanelView: React.FC<PanelViewProps> = ({
         <PanelContent panel={panel} />
       </div>
 
-      {!dragDisabled && (
+      <Tooltip label={resizeTooltipLabel} side="left">
         <ResizeHandle
           position="se"
           onMouseDown={(e) => {
@@ -195,7 +205,7 @@ export const PanelView: React.FC<PanelViewProps> = ({
             onResizeStart(e, 'se');
           }}
         />
-      )}
+      </Tooltip>
     </div>
   );
 };
