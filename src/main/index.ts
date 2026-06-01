@@ -391,9 +391,18 @@ function registerIpcHandlers(): void {
 
     // Snapshot existing pids BEFORE launching. Anything in the
     // post-launch poll that isn't in this set is our new instance.
+    //
+    // We match against `<appPath>/Contents/MacOS/` rather than just
+    // `appPath` because pgrep -f matches the full command line, and
+    // modern apps spawn a flock of helper/renderer processes whose
+    // command lines also contain `appPath` (under
+    // Contents/Frameworks/.../Helpers). The first new pid after
+    // launch is usually a helper, not the main app process — and
+    // System Events looks up windows by the main app's unix id, so
+    // we need the main pid, not a helper's.
     const pgrepPids = () =>
       new Promise<number[]>((resolve) => {
-        execFile('pgrep', ['-f', appPath], (_err, stdout) => {
+        execFile('pgrep', ['-f', `${appPath}/Contents/MacOS/`], (_err, stdout) => {
           resolve(
             stdout.split('\n').map((s) => parseInt(s, 10)).filter((n) => Number.isFinite(n))
           );
