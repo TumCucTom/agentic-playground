@@ -16,6 +16,8 @@ interface PanelViewProps {
   onFocus: () => void;
   onDragStart: (e: React.MouseEvent) => void;
   onResizeStart: (e: React.MouseEvent, handle: string) => void;
+  geometryOverride?: { x: number; y: number; width: number; height: number };
+  dragDisabled?: boolean;
 }
 
 export const PanelView: React.FC<PanelViewProps> = ({
@@ -24,6 +26,8 @@ export const PanelView: React.FC<PanelViewProps> = ({
   onFocus,
   onDragStart,
   onResizeStart,
+  geometryOverride,
+  dragDisabled = false,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const deletePanel = useCanvasStore((s) => s.deletePanel);
@@ -34,6 +38,7 @@ export const PanelView: React.FC<PanelViewProps> = ({
     if ((e.target as HTMLElement).closest('.panel-close, .panel-state-toggle')) return;
     e.stopPropagation();
     onFocus();
+    if (dragDisabled) return;
     onDragStart(e);
     setIsDragging(true);
   };
@@ -67,10 +72,10 @@ export const PanelView: React.FC<PanelViewProps> = ({
       data-panel-id={panel.id}
       style={{
         position: 'absolute',
-        left: panel.position.x,
-        top: panel.position.y,
-        width: panel.size.width,
-        height: panel.size.height,
+        left: geometryOverride?.x ?? panel.position.x,
+        top: geometryOverride?.y ?? panel.position.y,
+        width: geometryOverride?.width ?? panel.size.width,
+        height: geometryOverride?.height ?? panel.size.height,
         backgroundColor: '#1f1f1f',
         border: `1px solid ${isSelected ? '#5a9fd4' : '#2a2a2a'}`,
         borderRadius: 6,
@@ -101,7 +106,7 @@ export const PanelView: React.FC<PanelViewProps> = ({
           alignItems: 'center',
           paddingLeft: 10,
           paddingRight: 6,
-          cursor: isDragging ? 'grabbing' : 'grab',
+          cursor: dragDisabled ? 'default' : (isDragging ? 'grabbing' : 'grab'),
           flexShrink: 0,
           gap: 8,
         }}
@@ -181,13 +186,15 @@ export const PanelView: React.FC<PanelViewProps> = ({
         <PanelContent panel={panel} />
       </div>
 
-      <ResizeHandle
-        position="se"
-        onMouseDown={(e) => {
-          e.stopPropagation();
-          onResizeStart(e, 'se');
-        }}
-      />
+      {!dragDisabled && (
+        <ResizeHandle
+          position="se"
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            onResizeStart(e, 'se');
+          }}
+        />
+      )}
     </div>
   );
 };
