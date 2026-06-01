@@ -35,6 +35,10 @@ VS Code–shaped extension host so existing extension patterns can be reused.
   `~/Library/Application Support/canvas-workspace/workspaces`. Quick
   switcher in the toolbar.
 - **Auto-save** every 500 ms; Cmd+S to force a save.
+- **Two layout modes per workspace:** infinite **Canvas** (with magnetic
+  snap while dragging) and VS Code-style tiled **Grid**. Toggle with
+  `⌘⇧L` or the segmented control in the title bar. Mode state is
+  preserved per workspace and survives the switch.
 - **App Launcher / Mirror:** pick a macOS app from the quick-launch
   grid (VS Code, Chrome, Terminal, Safari, etc.) and the panel
   spawns a *new instance* of that app and streams its window in
@@ -44,6 +48,25 @@ VS Code–shaped extension host so existing extension patterns can be reused.
   and the system picker (`getDisplayMedia`) handles anything else.
   The stream is one-way — input still goes to the real app.
 - **File browser & editor wired to the real filesystem** through IPC.
+
+## Layout modes
+
+Two modes per workspace, toggled from the title bar or with `⌘⇧L`:
+
+- **Canvas** (default) — infinite pan/zoom canvas. Drag a panel near
+  another panel's edge or the viewport edge to snap into alignment;
+  a thin purple guide line shows the snap target. Hold `⌘` while
+  dragging to disable snapping for one drag.
+- **Grid** — VS Code-style binary-split tiling. Panels fill the
+  viewport with no overlap and no gaps.
+  - `⌘\` splits the focused panel right
+  - `⌘-` splits the focused panel down
+  - `⌘W` closes the focused panel (sibling absorbs its space)
+  - Drag a divider to resize both neighbours
+
+Switching modes preserves panel identity, so PTYs keep running,
+editors keep their buffers, and webviews keep their pages. Geometry
+reflows.
 
 ## Running it
 
@@ -162,8 +185,8 @@ tests/
 ## Tests
 
 ```bash
-npm test           # 32 unit tests (vitest)
-npm run test:e2e   # 8 end-to-end tests (playwright + electron)
+npm test           # 67 unit tests (vitest)
+npm run test:e2e   # 11 end-to-end tests (playwright + electron)
 ```
 
 The E2E suite launches the actual app via `_electron` from Playwright,
@@ -173,16 +196,21 @@ they don't share state.
 
 ## Keyboard shortcuts
 
-| Shortcut         | Action                              |
-| ---------------- | ----------------------------------- |
-| Cmd+scroll       | Zoom canvas                         |
-| Scroll           | Pan canvas                          |
-| Right-click      | Open add-panel menu                 |
-| Cmd+0            | Reset view                          |
-| Cmd++ / Cmd+-    | Zoom in / out                       |
-| Cmd+S            | Force save                          |
-| Cmd+Z            | Undo                                |
-| Cmd+Shift+Z / Y  | Redo                                |
+| Shortcut              | Action                                    |
+| --------------------- | ----------------------------------------- |
+| Cmd+scroll            | Zoom canvas                               |
+| Scroll                | Pan canvas                                |
+| Right-click           | Open add-panel menu                       |
+| Cmd+0                 | Reset view                                |
+| Cmd++ / Cmd+-         | Zoom in / out                             |
+| Cmd+S                 | Force save                                |
+| Cmd+Z                 | Undo                                      |
+| Cmd+Shift+Z / Y       | Redo                                      |
+| Cmd+Shift+L           | Toggle layout mode (canvas / grid)        |
+| Cmd (held)            | Disable snap while dragging (canvas mode) |
+| Cmd+\                 | Split right (grid mode)                   |
+| Cmd+-                 | Split down (grid mode) / Zoom out (canvas)|
+| Cmd+W                 | Close focused panel (grid mode)           |
 
 ## Honest limitations
 
