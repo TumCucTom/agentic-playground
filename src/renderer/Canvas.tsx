@@ -132,6 +132,22 @@ export const Canvas: React.FC<CanvasProps> = ({ background }) => {
         e.preventDefault();
         const current = useCanvasStore.getState().layoutMode;
         useCanvasStore.getState().setLayoutMode(current === 'canvas' ? 'grid' : 'canvas');
+      } else if (e.key === '\\' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        const s = useCanvasStore.getState();
+        if (s.layoutMode === 'grid') {
+          const newPanel = createPanelOfType('terminal', 0, 0);
+          s.splitFocused('v', newPanel);
+        }
+      } else if (e.key === '-' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+        // In grid mode, this splits the focused panel down. In canvas mode
+        // it falls through to the zoom-out branch above.
+        const s = useCanvasStore.getState();
+        if (s.layoutMode === 'grid') {
+          e.preventDefault();
+          const newPanel = createPanelOfType('terminal', 0, 0);
+          s.splitFocused('h', newPanel);
+        }
       }
     };
     window.addEventListener('keydown', handleKey);

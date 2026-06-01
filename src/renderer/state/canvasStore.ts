@@ -5,6 +5,7 @@ import {
   firstLeaf,
   rectsFromTree,
   resizeDivider as resizeDividerTree,
+  removeLeaf as removeLeafTree,
   splitLeaf,
 } from '../layout/splitTree';
 
@@ -163,6 +164,11 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
     },
 
     deletePanel: (id) => {
+      const s = get();
+      if (s.layoutMode === 'grid') {
+        get().closeLeaf(id);
+        return;
+      }
       pushHistory();
       set((s) => ({
         panels: s.panels.filter((p) => p.id !== id),
@@ -303,7 +309,22 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
         set({ layoutMode: 'canvas', gridTree: undefined, panels, isDirty: true });
       }
     },
-    splitFocused: (_dir, _panel) => { /* implemented in Task 11 */ },
+    splitFocused: (dir, newPanel) => {
+      const s = get();
+      if (s.layoutMode !== 'grid' || !s.gridTree) return;
+      const focusedId = s.selectedPanelIds[0] ?? firstLeaf(s.gridTree);
+      if (!focusedId) return;
+      pushHistory();
+      const tree = splitLeaf(s.gridTree, focusedId, newPanel.id, dir);
+      maxZOrder += 1;
+      const panel = { ...newPanel, zOrder: maxZOrder };
+      set({
+        panels: [...s.panels, panel],
+        gridTree: tree,
+        selectedPanelIds: [panel.id],
+        isDirty: true,
+      });
+    },
     resizeDivider: (path, ratio) => {
       pushHistory();
       set((s) => {
@@ -311,7 +332,20 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
         return { gridTree: resizeDividerTree(s.gridTree, path, ratio), isDirty: true };
       });
     },
-    closeLeaf: (_id) => { /* implemented in Task 11 */ },
+    closeLeaf: (panelId) => {
+      const s = get();
+      if (s.layoutMode !== 'grid') return;
+      pushHistory();
+      set((curr) => {
+        const tree = curr.gridTree ? removeLeafTree(curr.gridTree, panelId) ?? undefined : undefined;
+        return {
+          panels: curr.panels.filter((p) => p.id !== panelId),
+          selectedPanelIds: curr.selectedPanelIds.filter((id) => id !== panelId),
+          gridTree: tree,
+          isDirty: true,
+        };
+      });
+    },
 
     undo: () => {
       const { past } = get();
