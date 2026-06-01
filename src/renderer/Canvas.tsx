@@ -6,6 +6,7 @@ import { viewportToCanvas } from './utils/coordinates';
 import { PanelType } from '../shared/types';
 import { createPanelOfType } from './panels/factory';
 import { BackgroundMode } from './BackgroundPicker';
+import { GridLayout } from './layout/GridLayout';
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
@@ -30,6 +31,7 @@ export const Canvas: React.FC<CanvasProps> = ({ background }) => {
 
   const panels = useCanvasStore((s) => s.panels);
   const viewport = useCanvasStore((s) => s.viewport);
+  const layoutMode = useCanvasStore((s) => s.layoutMode);
   const selectedPanelIds = useCanvasStore((s) => s.selectedPanelIds);
   const panViewport = useCanvasStore((s) => s.panViewport);
   const zoomViewport = useCanvasStore((s) => s.zoomViewport);
@@ -246,6 +248,10 @@ export const Canvas: React.FC<CanvasProps> = ({ background }) => {
       backgroundPosition: dotPos,
     };
   })();
+
+  if (layoutMode === 'grid') {
+    return <GridLayout />;
+  }
 
   return (
     <div
