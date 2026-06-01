@@ -39,14 +39,17 @@ VS Code–shaped extension host so existing extension patterns can be reused.
   snap while dragging) and VS Code-style tiled **Grid**. Toggle with
   `⌘⇧L` or the segmented control in the title bar. Mode state is
   preserved per workspace and survives the switch.
-- **App Launcher:** pick a macOS app from the quick-launch
-  grid (VS Code, Chrome, Terminal, Safari, etc.) and the panel
-  spawns a *new instance* of that app and streams its window in
-  place — same shape as the terminal panel spawning a new shell. The
-  spawned process is killed when the panel closes. A "Capture
-  existing" fallback lets you mirror a window that's already open,
-  and the system picker (`getDisplayMedia`) handles anything else.
-  The stream is one-way — input still goes to the real app.
+- **App Launcher:** the left sidebar has one-click icons for
+  common apps (Chrome, VS Code, Terminal, Safari, Finder by
+  default). Click spawns a *new instance* of the app and streams
+  its window into a new App Launcher panel. Right-click an icon
+  to remove it, add a custom bundle id, or restore the defaults.
+  The full App Launcher panel also has a quick-launch grid and a
+  "Capture existing" fallback (VS Code, Chrome, Terminal, Safari,
+  etc.) that lets you mirror a window that's already open. The
+  spawned process is killed when the panel closes, and the system
+  picker (`getDisplayMedia`) handles anything else. The stream is
+  one-way — input still goes to the real app.
 - **File browser & editor wired to the real filesystem** through IPC.
 
 ## Layout modes

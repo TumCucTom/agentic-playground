@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Panel } from '../../shared/types';
 import { useCanvasStore } from '../state/canvasStore';
+import { COMMON_APPS, nameToAppId } from '../commonApps';
 
 interface Props {
   panel: Panel;
@@ -43,36 +44,8 @@ function savePrefs(p: Prefs) {
 // Friendly mapping of common macOS bundle IDs to a display name & emoji.
 // These double as the "Quick Launch" buttons: clicking one spawns a new
 // instance of the app and streams its window into this panel.
-const COMMON_APPS: { id: string; name: string; icon: string }[] = [
-  { id: 'com.google.Chrome', name: 'Google Chrome', icon: '🌐' },
-  { id: 'com.microsoft.VSCode', name: 'Visual Studio Code', icon: '🧩' },
-  { id: 'com.apple.Terminal', name: 'Terminal', icon: '⌨' },
-  { id: 'com.apple.Safari', name: 'Safari', icon: '🧭' },
-  { id: 'com.figma.Desktop', name: 'Figma', icon: '🎨' },
-  { id: 'com.spotify.client', name: 'Spotify', icon: '🎧' },
-  { id: 'com.apple.finder', name: 'Finder', icon: '📁' },
-  { id: 'com.apple.SafariTechnologyPreview', name: 'Safari Tech Preview', icon: '🧪' },
-  { id: 'com.tinyspeck.chatlyio', name: 'Slack', icon: '💬' },
-  { id: 'com.electron.canvas-workspace', name: 'Canvas Workspace', icon: '🪞' },
-  { id: 'com.apple.dt.Xcode', name: 'Xcode', icon: '🛠' },
-  { id: 'com.google.Chrome.canary', name: 'Chrome Canary', icon: '🌐' },
-];
+// (See ../commonApps.ts for the shared list.)
 
-// Heuristics for matching a window's source.name to a known bundle id.
-function nameToAppId(name: string): string {
-  const lower = name.toLowerCase();
-  if (lower.includes('visual studio code') || lower.includes('code')) return 'com.microsoft.VSCode';
-  if (lower.includes('google chrome')) return 'com.google.Chrome';
-  if (lower.includes('safari')) return 'com.apple.Safari';
-  if (lower.includes('figma')) return 'com.figma.Desktop';
-  if (lower.includes('spotify')) return 'com.spotify.client';
-  if (lower.includes('finder')) return 'com.apple.finder';
-  if (lower.includes('terminal')) return 'com.apple.Terminal';
-  if (lower.includes('slack')) return 'com.tinyspeck.chatlyio';
-  if (lower.includes('xcode')) return 'com.apple.dt.Xcode';
-  if (lower.includes('canvas workspace') || lower.includes('canvasworkspace')) return 'com.electron.canvas-workspace';
-  return '';
-}
 
 export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
   const ref = panel.content.type === 'embedded' ? panel.content.ref : null;

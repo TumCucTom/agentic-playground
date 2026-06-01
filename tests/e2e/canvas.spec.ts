@@ -227,6 +227,32 @@ test('terminal panel spawns a working PTY', async () => {
   await app.close();
 });
 
+test('sidebar renders default app launcher icons with right-click menu', async () => {
+  const app = await launchApp();
+  const window = await app.firstWindow();
+  await window.waitForLoadState('domcontentloaded');
+  await window.waitForSelector('.canvas-root', { timeout: 15_000 });
+
+  // The default apps should be present in the sidebar.
+  for (const bundleId of [
+    'com.google.Chrome',
+    'com.microsoft.VSCode',
+    'com.apple.Terminal',
+    'com.apple.Safari',
+    'com.apple.finder',
+  ]) {
+    await window.waitForSelector(`[data-testid="toolbox-app-${bundleId}"]`, { timeout: 5_000 });
+  }
+
+  // Right-click one icon to open the menu, then verify the menu options.
+  await window.click('[data-testid="toolbox-app-com.google.Chrome"]', { button: 'right' });
+  await window.waitForSelector('text=Remove from sidebar', { timeout: 2_000 });
+  await window.waitForSelector('text=Add custom app', { timeout: 2_000 });
+  await window.waitForSelector('text=Restore defaults', { timeout: 2_000 });
+
+  await app.close();
+});
+
 test('app launcher panel renders the running-apps quick-pick', async () => {
   const app = await launchApp();
   const window = await app.firstWindow();
