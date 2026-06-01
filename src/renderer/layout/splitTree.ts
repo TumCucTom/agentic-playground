@@ -119,6 +119,38 @@ export function findBottomDividerPath(tree: SplitTree, panelId: string): number[
   return null;
 }
 
+export function findLeftDividerPath(tree: SplitTree, panelId: string): number[] | null {
+  const leafPath = findLeafPath(tree, panelId);
+  if (!leafPath) return null;
+  // Closest 'v' split whose `b` child contains the leaf is the divider
+  // that, if dragged left, resizes the leaf. (The leaf is on the right
+  // side of the divider; pulling the divider left gives the leaf more
+  // room.)
+  for (let i = leafPath.length - 1; i >= 0; i--) {
+    const ancestorPath = leafPath.slice(0, i);
+    const ancestor = getNodeAtPath(tree, ancestorPath);
+    if (ancestor && ancestor.kind === 'split' && ancestor.dir === 'v' && leafPath[i] === 1) {
+      return ancestorPath;
+    }
+  }
+  return null;
+}
+
+export function findTopDividerPath(tree: SplitTree, panelId: string): number[] | null {
+  const leafPath = findLeafPath(tree, panelId);
+  if (!leafPath) return null;
+  // Mirror of findLeftDividerPath: closest 'h' split whose `b` child
+  // contains the leaf.
+  for (let i = leafPath.length - 1; i >= 0; i--) {
+    const ancestorPath = leafPath.slice(0, i);
+    const ancestor = getNodeAtPath(tree, ancestorPath);
+    if (ancestor && ancestor.kind === 'split' && ancestor.dir === 'h' && leafPath[i] === 1) {
+      return ancestorPath;
+    }
+  }
+  return null;
+}
+
 export function rectsFromTree(tree: SplitTree, viewport: Rect): Map<string, Rect> {
   const out = new Map<string, Rect>();
   walk(tree, viewport);

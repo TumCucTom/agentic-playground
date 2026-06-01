@@ -22,6 +22,11 @@ interface PanelViewProps {
   // Used for the SE handle tooltip text — "Drag to resize · Double-click
   // to maximize" in canvas mode, "Drag to resize" in grid mode.
   resizeTooltipLabel?: string;
+  // In grid mode, only the edges with a real divider behind them are
+  // resizeable. The parent passes the allowed set so we can hide the
+  // handles that would no-op (e.g., the left edge of the leftmost
+  // panel). Undefined = all 8 directions (canvas mode).
+  availableHandles?: Set<string>;
 }
 
 export const PanelView: React.FC<PanelViewProps> = ({
@@ -34,6 +39,7 @@ export const PanelView: React.FC<PanelViewProps> = ({
   geometryOverride,
   dragDisabled = false,
   resizeTooltipLabel = 'Drag to resize',
+  availableHandles,
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const deletePanel = useCanvasStore((s) => s.deletePanel);
@@ -197,62 +203,29 @@ export const PanelView: React.FC<PanelViewProps> = ({
       </div>
 
       <Tooltip label={resizeTooltipLabel} side="left">
-        <ResizeHandle
-          direction="nw"
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            onResizeStart(e, 'nw');
-          }}
-        />
-        <ResizeHandle
-          direction="n"
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            onResizeStart(e, 'n');
-          }}
-        />
-        <ResizeHandle
-          direction="ne"
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            onResizeStart(e, 'ne');
-          }}
-        />
-        <ResizeHandle
-          direction="e"
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            onResizeStart(e, 'e');
-          }}
-        />
-        <ResizeHandle
-          direction="se"
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            onResizeStart(e, 'se');
-          }}
-        />
-        <ResizeHandle
-          direction="s"
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            onResizeStart(e, 's');
-          }}
-        />
-        <ResizeHandle
-          direction="sw"
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            onResizeStart(e, 'sw');
-          }}
-        />
-        <ResizeHandle
-          direction="w"
-          onMouseDown={(e) => {
-            e.stopPropagation();
-            onResizeStart(e, 'w');
-          }}
-        />
+        {(
+          [
+            'nw',
+            'n',
+            'ne',
+            'e',
+            'se',
+            's',
+            'sw',
+            'w',
+          ] as ResizeDirection[]
+        )
+          .filter((d) => !availableHandles || availableHandles.has(d))
+          .map((d) => (
+            <ResizeHandle
+              key={d}
+              direction={d}
+              onMouseDown={(e) => {
+                e.stopPropagation();
+                onResizeStart(e, d);
+              }}
+            />
+          ))}
       </Tooltip>
     </div>
   );

@@ -2,8 +2,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useCanvasStore } from '../state/canvasStore';
 import { PanelView } from '../Panel';
 import { SplitTree } from '../../shared/types';
-import { rectsFromTree, findRightDividerPath, findBottomDividerPath } from './splitTree';
+import { rectsFromTree, findRightDividerPath, findBottomDividerPath, findLeftDividerPath, findTopDividerPath } from './splitTree';
 import { SplitDivider } from './SplitDivider';
+import { SIDEBAR_WIDTH, TITLE_BAR_HEIGHT } from './canvasChrome';
 
 interface DividerDescriptor {
   path: number[];
@@ -60,7 +61,13 @@ export const GridLayout: React.FC = () => {
   const resizeDivider = useCanvasStore((s) => s.resizeDivider);
 
   const rootRef = useRef<HTMLDivElement>(null);
-  const [size, setSize] = useState({ w: window.innerWidth, h: window.innerHeight });
+  // Size is the panel area inside the chrome (sidebar + title bar).
+  // The ResizeObserver below tracks the actual root element size, so
+  // this initial value is only used for the first paint.
+  const [size, setSize] = useState({
+    w: window.innerWidth - SIDEBAR_WIDTH,
+    h: window.innerHeight - TITLE_BAR_HEIGHT,
+  });
 
   useEffect(() => {
     const el = rootRef.current;
@@ -93,15 +100,30 @@ export const GridLayout: React.FC = () => {
   }, [dividers]);
 
   const handleResizeStart = (panelId: string) => (e: React.MouseEvent, handle: string) => {
-    if (handle !== 'se') return;
     if (!gridTree) return;
     e.preventDefault();
-    const rightPath = findRightDividerPath(gridTree, panelId);
-    const bottomPath = findBottomDividerPath(gridTree, panelId);
-    if (!rightPath && !bottomPath) return;
-    const rightDesc = rightPath ? dividersByPath.get(rightPath.join('-') + '-v') ?? null : null;
-    const bottomDesc = bottomPath ? dividersByPath.get(bottomPath.join('-') + '-h') ?? null : null;
-    if (!rightDesc && !bottomDesc) return;
+    // For each direction, look up the divider that controls that edge
+    // of the panel. A 'v' split's right edge is the right divider of
+    // its `a` child and the left divider of its `b` child; same for
+    // 'h' splits. If a panel sits at the root boundary in some
+    // direction, no divider exists for that side and the move is a
+    // no-op.
+    const dirs: Array<'e' | 'w' | 's' | 'n'> = [];
+    if (handle === 'e' || handle === 'se' || handle === 'ne') dirs.push('e');
+    if (handle === 'w' || handle === 'sw' || handle === 'nw') dirs.push('w');
+    if (handle === 's' || handle === 'se' || handle === 'sw') dirs.push('s');
+    if (handle === 'n' || handle === 'ne' || handle === 'nw') dirs.push('n');
+
+    const lookups: Array<{ path: number[] | null; dir: 'v' | 'h' }> = dirs.map((d) => {
+      if (d === 'e') return { path: findRightDividerPath(gridTree, panelId), dir: 'v' };
+      if (d === 'w') return { path: findLeftDividerPath(gridTree, panelId), dir: 'v' };
+      if (d === 's') return { path: findBottomDividerPath(gridTree, panelId), dir: 'h' };
+      return { path: findTopDividerPath(gridTree, panelId), dir: 'h' };
+    });
+    const descs = lookups
+      .map((l) => (l.path ? dividersByPath.get(l.path.join('-') + '-' + l.dir) ?? null : null))
+      .filter((d): d is DividerDescriptor => d !== null);
+    if (descs.length === 0) return;
 
     const startX = e.clientX;
     const startY = e.clientY;
@@ -109,15 +131,16 @@ export const GridLayout: React.FC = () => {
     const onMove = (ev: MouseEvent) => {
       const dx = ev.clientX - startX;
       const dy = ev.clientY - startY;
-      if (rightDesc) {
-        const newPosition = rightDesc.position + dx;
-        const newRatio = (newPosition - rightDesc.containerStart) / rightDesc.containerSize;
-        resizeDivider(rightDesc.path, newRatio);
-      }
-      if (bottomDesc) {
-        const newPosition = bottomDesc.position + dy;
-        const newRatio = (newPosition - bottomDesc.containerStart) / bottomDesc.containerSize;
-        resizeDivider(bottomDesc.path, newRatio);
+      for (const desc of descs) {
+        // For both directions, the divider is the shared edge
+        // between the `a` and `b` children. Dragging the cursor by
+        // (dx, dy) translates to a new divider position; the ratio
+        // re-derives from that. The panel on the side of the handle
+        // the user grabbed grows (or shrinks) accordingly.
+        const delta = desc.dir === 'v' ? dx : dy;
+        const newPosition = desc.position + delta;
+        const newRatio = (newPosition - desc.containerStart) / desc.containerSize;
+        resizeDivider(desc.path, newRatio);
       }
     };
     const onUp = () => {
@@ -128,14 +151,38 @@ export const GridLayout: React.FC = () => {
     window.addEventListener('mouseup', onUp);
   };
 
+  // For each panel, which resize directions have a real divider to
+  // move? Pass the available set to PanelView so it can hide handles
+  // that would no-op (e.g., grabbing the left edge of the leftmost
+  // panel in a row).
+  const availableHandlesByPanel = useMemo(() => {
+    const m = new Map<string, Set<string>>();
+    if (!gridTree) return m;
+    for (const panel of panels) {
+      const set = new Set<string>();
+      if (findRightDividerPath(gridTree, panel.id)) set.add('e');
+      if (findLeftDividerPath(gridTree, panel.id)) set.add('w');
+      if (findBottomDividerPath(gridTree, panel.id)) set.add('s');
+      if (findTopDividerPath(gridTree, panel.id)) set.add('n');
+      if (set.has('e') && set.has('s')) set.add('se');
+      if (set.has('w') && set.has('s')) set.add('sw');
+      if (set.has('e') && set.has('n')) set.add('ne');
+      if (set.has('w') && set.has('n')) set.add('nw');
+      m.set(panel.id, set);
+    }
+    return m;
+  }, [gridTree, panels]);
+
   return (
     <div
       ref={rootRef}
       className="canvas-root grid-layout"
       style={{
         position: 'fixed',
-        top: 28,
-        left: 0,
+        top: TITLE_BAR_HEIGHT,
+        // Stop before the left sidebar so panels can't be dragged
+        // underneath it.
+        left: SIDEBAR_WIDTH,
         right: 0,
         bottom: 0,
         background: '#0f0f0f',
@@ -170,6 +217,7 @@ export const GridLayout: React.FC = () => {
             onResizeStart={handleResizeStart(panel.id)}
             geometryOverride={{ x: r.x, y: r.y, width: r.w, height: r.h }}
             dragDisabled
+            availableHandles={availableHandlesByPanel.get(panel.id)}
           />
         );
       })}

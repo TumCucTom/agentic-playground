@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Panel } from '../../shared/types';
 import { useCanvasStore } from '../state/canvasStore';
 import { rectsFromTree } from '../layout/splitTree';
+import { SIDEBAR_WIDTH, TITLE_BAR_HEIGHT } from '../layout/canvasChrome';
 import { COMMON_APPS, nameToAppId } from '../commonApps';
 
 interface Props {
@@ -76,26 +77,32 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
   const getPanelScreenRect = (): { x: number; y: number; width: number; height: number } | null => {
     const winScreenX = window.screenX ?? 0;
     const winScreenY = window.screenY ?? 0;
-    // The Electron window's title bar is 28px tall; the canvas (and grid
-    // layout) starts underneath it. In grid mode the panels are at
-    // absolute positions inside that container.
+    // The grid layout sits inside the canvas chrome (sidebar +
+    // title bar). rectsFromTree uses local coordinates from the
+    // layout's origin, which is (SIDEBAR_WIDTH, TITLE_BAR_HEIGHT) in
+    // window coordinates.
     if (layoutMode === 'grid') {
       const tree = useCanvasStore.getState().gridTree;
       if (!tree) return null;
-      const rects = rectsFromTree(tree, { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight - 28 });
+      const rects = rectsFromTree(tree, {
+        x: 0,
+        y: 0,
+        w: window.innerWidth - SIDEBAR_WIDTH,
+        h: window.innerHeight - TITLE_BAR_HEIGHT,
+      });
       const r = rects.get(panel.id);
       if (!r) return null;
       return {
-        x: winScreenX + r.x,
-        y: winScreenY + 28 + r.y,
+        x: winScreenX + SIDEBAR_WIDTH + r.x,
+        y: winScreenY + TITLE_BAR_HEIGHT + r.y,
         width: r.w,
         height: r.h,
       };
     }
     const z = viewport.zoom;
     return {
-      x: winScreenX + (panel.position.x - viewport.x) * z,
-      y: winScreenY + 28 + (panel.position.y - viewport.y) * z,
+      x: winScreenX + SIDEBAR_WIDTH + (panel.position.x - viewport.x) * z,
+      y: winScreenY + TITLE_BAR_HEIGHT + (panel.position.y - viewport.y) * z,
       width: panel.size.width * z,
       height: panel.size.height * z,
     };

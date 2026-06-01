@@ -9,6 +9,7 @@ import { BackgroundMode } from './BackgroundPicker';
 import { GridLayout } from './layout/GridLayout';
 import { snap, SnapGuide } from './layout/snapEngine';
 import { SnapGuides } from './layout/SnapGuides';
+import { SIDEBAR_WIDTH, TITLE_BAR_HEIGHT } from './layout/canvasChrome';
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
@@ -223,8 +224,11 @@ export const Canvas: React.FC<CanvasProps> = ({ background }) => {
           const viewportRect = {
             x: viewport.x,
             y: viewport.y,
-            w: window.innerWidth / viewport.zoom,
-            h: window.innerHeight / viewport.zoom,
+            // The visible canvas is offset by the chrome (sidebar +
+            // title bar). Panels can't be "in" the chrome area, so the
+            // snap viewportRect shouldn't suggest it either.
+            w: (window.innerWidth - SIDEBAR_WIDTH) / viewport.zoom,
+            h: (window.innerHeight - TITLE_BAR_HEIGHT) / viewport.zoom,
           };
           const result = snap({
             dragRect: { x: rawX, y: rawY, w: draggedPanel.size.width, h: draggedPanel.size.height },
@@ -400,7 +404,10 @@ export const Canvas: React.FC<CanvasProps> = ({ background }) => {
       style={{
         position: 'fixed',
         top: 0,
-        left: 0,
+        // Stop before the left sidebar so panels can't be dragged
+        // underneath it. The Toolbox sits on top of the canvas (higher
+        // z-index) so panels behind it are visually obscured.
+        left: SIDEBAR_WIDTH,
         right: 0,
         bottom: 0,
         overflow: 'hidden',
