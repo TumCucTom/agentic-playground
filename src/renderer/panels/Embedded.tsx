@@ -365,7 +365,7 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
           }}
         >
           <div style={{ textAlign: 'center', marginBottom: 12 }}>
-            <div style={{ fontSize: 24, color: '#d0d0d0' }}>🪞</div>
+            <div style={{ fontSize: 24, color: '#d0d0d0' }}>▶</div>
             <div style={{ fontWeight: 500, fontSize: 14, margin: '4px 0' }}>App Launcher</div>
             <div style={{ color: '#888', lineHeight: 1.4, maxWidth: 360, margin: '0 auto' }}>
               Pick an app to launch a new instance. The window streams in

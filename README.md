@@ -16,7 +16,7 @@ VS Code–shaped extension host so existing extension patterns can be reused.
 - **Panels** as flat rectangles you can drag, resize, focus, and close.
   Title bar shows a state indicator dot for terminal-style panels.
 - **Built-in panel types:** terminal (real PTY), editor (Monaco), file
-  explorer, markdown viewer, webview, embedded app mirror, and arbitrary
+  explorer, markdown viewer, webview, app launcher, and arbitrary
   extensions.
 - **Extension host** spawned as a child process with newline-delimited
   JSON-RPC. Three bundled extensions: `canvas-notes`, `canvas-tasks`
@@ -39,12 +39,12 @@ VS Code–shaped extension host so existing extension patterns can be reused.
   snap while dragging) and VS Code-style tiled **Grid**. Toggle with
   `⌘⇧L` or the segmented control in the title bar. Mode state is
   preserved per workspace and survives the switch.
-- **App Launcher / Mirror:** pick a macOS app from the quick-launch
+- **App Launcher:** pick a macOS app from the quick-launch
   grid (VS Code, Chrome, Terminal, Safari, etc.) and the panel
   spawns a *new instance* of that app and streams its window in
   place — same shape as the terminal panel spawning a new shell. The
-  spawned process is killed when the panel closes. A "Mirror
-  existing" fallback lets you capture a window that's already open,
+  spawned process is killed when the panel closes. A "Capture
+  existing" fallback lets you mirror a window that's already open,
   and the system picker (`getDisplayMedia`) handles anything else.
   The stream is one-way — input still goes to the real app.
 - **File browser & editor wired to the real filesystem** through IPC.

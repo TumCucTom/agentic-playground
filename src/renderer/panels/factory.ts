@@ -50,7 +50,7 @@ const FACTORIES: Record<
     },
   }),
   embedded: (x, y) => ({
-    title: 'App Mirror',
+    title: 'App Launcher',
     content: { type: 'embedded', ref: { appBundleId: '' } },
   }),
 };

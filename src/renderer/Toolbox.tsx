@@ -11,7 +11,7 @@ const ITEMS: { type: PanelType; label: string; icon: string; shortcut?: string }
   { type: 'fileExplorer', label: 'Files', icon: '📁' },
   { type: 'webview', label: 'Web', icon: '🌐' },
   { type: 'markdownPreview', label: 'Markdown', icon: '¶' },
-  { type: 'embedded', label: 'App Mirror', icon: '🪞' },
+  { type: 'embedded', label: 'App Launcher', icon: '▶' },
 ];
 
 export const Toolbox: React.FC = () => {

@@ -227,14 +227,14 @@ test('terminal panel spawns a working PTY', async () => {
   await app.close();
 });
 
-test('app mirror panel renders the running-apps quick-pick', async () => {
+test('app launcher panel renders the running-apps quick-pick', async () => {
   const app = await launchApp();
   const window = await app.firstWindow();
   await window.waitForLoadState('domcontentloaded');
   await window.waitForSelector('.canvas-root', { timeout: 15_000 });
   await window.waitForFunction(() => !!(window as any).canvasAPI?.listDesktopSources, undefined, { timeout: 15_000 });
 
-  // Right-click the canvas to open the context menu, then choose App Mirror.
+  // Right-click the canvas to open the context menu, then choose App Launcher.
   await window.evaluate(() => {
     const canvas = document.querySelector('.canvas-root') as HTMLElement | null;
     if (!canvas) throw new Error('no canvas');
@@ -247,9 +247,9 @@ test('app mirror panel renders the running-apps quick-pick', async () => {
       })
     );
   });
-  await window.getByText('App Mirror', { exact: true }).first().click();
+  await window.getByText('App Launcher', { exact: true }).first().click();
 
-  // The App Mirror panel now shows a "Quick launch" grid and a
+  // The App Launcher panel now shows a "Quick launch" grid and a
   // "Mirror existing" fallback.
   await window.waitForSelector('text=Quick launch', { timeout: 5_000 });
   await window.waitForSelector('text=Mirror existing', { timeout: 5_000 });

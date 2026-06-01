@@ -16,7 +16,7 @@ const extensionsDir = path.join(userDataPath, 'extensions');
 let mainWindow: BrowserWindow | null = null;
 let extensionHost: ExtensionHostManager | null = null;
 
-// Track macOS apps we launched via the App Mirror panel, so we can kill
+// Track macOS apps we launched via the App Launcher panel, so we can kill
 // them when the panel closes. Map pid → { bundleId, appName }.
 interface LaunchedApp {
   bundleId: string;
@@ -523,7 +523,7 @@ function createWindow(): void {
   // Allow the renderer to use navigator.mediaDevices.getDisplayMedia.
   // Without this Electron throws "Not supported". When the renderer
   // calls getDisplayMedia, we forward to desktopCapturer and grab the
-  // first window source; the App Mirror panel also has a quick-pick UI
+  // first window source; the App Launcher panel also has a quick-pick UI
   // for choosing a specific window.
   session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
     try {
