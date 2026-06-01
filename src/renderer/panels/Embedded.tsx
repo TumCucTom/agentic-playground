@@ -1,19 +1,18 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Panel } from '../../shared/types';
+import { useCanvasStore } from '../state/canvasStore';
 
 interface Props {
   panel: Panel;
 }
 
-const COMMON_APPS = [
-  { id: 'com.google.Chrome', name: 'Google Chrome' },
-  { id: 'com.microsoft.VSCode', name: 'Visual Studio Code' },
-  { id: 'com.apple.Terminal', name: 'Terminal' },
-  { id: 'com.apple.Safari', name: 'Safari' },
-  { id: 'com.figma.Desktop', name: 'Figma' },
-  { id: 'com.spotify.client', name: 'Spotify' },
-  { id: 'com.apple.finder', name: 'Finder' },
-];
+interface Source {
+  id: string;
+  name: string;
+  appIcon: string | null;
+  thumbnail: string | null;
+  pid?: number | null;
+}
 
 const STORAGE_KEY = 'canvas-embedded-prefs';
 const FRAME_RATES = [15, 24, 30, 60];
@@ -41,30 +40,90 @@ function savePrefs(p: Prefs) {
   }
 }
 
+// Friendly mapping of common macOS bundle IDs to a display name & emoji.
+// These double as the "Quick Launch" buttons: clicking one spawns a new
+// instance of the app and streams its window into this panel.
+const COMMON_APPS: { id: string; name: string; icon: string }[] = [
+  { id: 'com.google.Chrome', name: 'Google Chrome', icon: '🌐' },
+  { id: 'com.microsoft.VSCode', name: 'Visual Studio Code', icon: '🧩' },
+  { id: 'com.apple.Terminal', name: 'Terminal', icon: '⌨' },
+  { id: 'com.apple.Safari', name: 'Safari', icon: '🧭' },
+  { id: 'com.figma.Desktop', name: 'Figma', icon: '🎨' },
+  { id: 'com.spotify.client', name: 'Spotify', icon: '🎧' },
+  { id: 'com.apple.finder', name: 'Finder', icon: '📁' },
+  { id: 'com.apple.SafariTechnologyPreview', name: 'Safari Tech Preview', icon: '🧪' },
+  { id: 'com.tinyspeck.chatlyio', name: 'Slack', icon: '💬' },
+  { id: 'com.electron.canvas-workspace', name: 'Canvas Workspace', icon: '🪞' },
+  { id: 'com.apple.dt.Xcode', name: 'Xcode', icon: '🛠' },
+  { id: 'com.google.Chrome.canary', name: 'Chrome Canary', icon: '🌐' },
+];
+
+// Heuristics for matching a window's source.name to a known bundle id.
+function nameToAppId(name: string): string {
+  const lower = name.toLowerCase();
+  if (lower.includes('visual studio code') || lower.includes('code')) return 'com.microsoft.VSCode';
+  if (lower.includes('google chrome')) return 'com.google.Chrome';
+  if (lower.includes('safari')) return 'com.apple.Safari';
+  if (lower.includes('figma')) return 'com.figma.Desktop';
+  if (lower.includes('spotify')) return 'com.spotify.client';
+  if (lower.includes('finder')) return 'com.apple.finder';
+  if (lower.includes('terminal')) return 'com.apple.Terminal';
+  if (lower.includes('slack')) return 'com.tinyspeck.chatlyio';
+  if (lower.includes('xcode')) return 'com.apple.dt.Xcode';
+  if (lower.includes('canvas workspace') || lower.includes('canvasworkspace')) return 'com.electron.canvas-workspace';
+  return '';
+}
+
 export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
   const ref = panel.content.type === 'embedded' ? panel.content.ref : null;
+  const updatePanel = useCanvasStore((s) => s.updatePanel);
   const initialAppBundleId = ref?.appBundleId ?? '';
   const [prefs, setPrefs] = useState<Prefs>(() => {
     const stored = loadPrefs();
     return { ...stored, appBundleId: initialAppBundleId || stored.appBundleId };
   });
   const [showSettings, setShowSettings] = useState(false);
+  const [sources, setSources] = useState<Source[]>([]);
+  const [sourcesLoading, setSourcesLoading] = useState(false);
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const launchedPidRef = useRef<number | null>(null);
+  const launchedBundleIdRef = useRef<string | null>(null);
+  const launchedAppNameRef = useRef<string | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [lastMirror, setLastMirror] = useState<string | null>(null);
+  const [launching, setLaunching] = useState(false);
 
   useEffect(() => {
     return () => {
       stopStream();
+      // Kill the macOS app we launched (if any) so we don't leave
+      // orphan instances after the panel closes.
+      const pid = launchedPidRef.current;
+      if (pid) {
+        void window.canvasAPI.killApp(pid);
+        launchedPidRef.current = null;
+      }
     };
   }, []);
 
   useEffect(() => {
     savePrefs(prefs);
   }, [prefs]);
+
+  // On mount, if the panel has a persisted bundleId, auto-launch a new
+  // instance — mirrors how the terminal panel auto-spawns a shell.
+  useEffect(() => {
+    const bundleId = ref?.appBundleId;
+    if (bundleId && !launchedPidRef.current) {
+      void launchNewInstance(bundleId, false);
+    }
+    // We intentionally only re-run if the bundleId changes between
+    // mounts. Manual launches go through the callback below.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const stopStream = useCallback(() => {
     if (streamRef.current) {
@@ -74,43 +133,199 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
     setStreaming(false);
   }, []);
 
-  const startCapture = useCallback(async () => {
+  const attachStream = useCallback((stream: MediaStream, sourceLabel: string) => {
+    streamRef.current = stream;
+    if (videoRef.current) {
+      videoRef.current.srcObject = stream;
+      videoRef.current.play().catch(() => {
+        // Autoplay may be blocked; user can click play
+      });
+    }
+    setLastMirror(sourceLabel);
+    setStreaming(true);
+    const track = stream.getVideoTracks()[0];
+    track?.addEventListener('ended', () => {
+      stopStream();
+    });
+  }, [stopStream]);
+
+  // Stream a specific desktopCapturer source by its id. The main process
+  // registered setDisplayMediaRequestHandler which returns a stream for
+  // the first window. To target a specific source we issue a new
+  // getUserMedia call using chromeMediaSourceId.
+  const captureBySourceId = useCallback(
+    async (sourceId: string, sourceName: string) => {
+      setError(null);
+      try {
+        const stream = await (navigator.mediaDevices as any).getUserMedia({
+          audio: false,
+          video: {
+            mandatory: {
+              chromeMediaSource: 'desktop',
+              chromeMediaSourceId: sourceId,
+              maxFrameRate: prefs.frameRate,
+            },
+          },
+        });
+        attachStream(stream, sourceName);
+      } catch (err) {
+        setError((err as Error).message);
+        setStreaming(false);
+      }
+    },
+    [attachStream, prefs.frameRate]
+  );
+
+  const startPicker = useCallback(async () => {
     setError(null);
     try {
       const stream = await (navigator.mediaDevices as any).getDisplayMedia({
-        video: {
-          frameRate: prefs.frameRate,
-        },
+        video: { frameRate: prefs.frameRate },
         audio: false,
       });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play().catch(() => {
-          // Autoplay may be blocked; user can click play
-        });
-      }
-      // Try to detect which app is being shared
       const track = stream.getVideoTracks()[0];
-      const settings = track.getSettings?.() || {};
-      const displaySurface = (settings as any).displaySurface;
-      const label = track.label || 'unknown window';
-      setLastMirror(`${label}${displaySurface ? ` (${displaySurface})` : ''}`);
-
-      setStreaming(true);
-      track.addEventListener('ended', () => {
-        stopStream();
-      });
+      attachStream(stream, track?.label || 'picked window');
     } catch (err) {
       setError((err as Error).message);
       setStreaming(false);
     }
-  }, [prefs.frameRate, stopStream]);
+  }, [attachStream, prefs.frameRate]);
 
-  const reMirror = useCallback(() => {
+  // Launch a new instance of the app and start streaming its window.
+  // Persists the bundleId in panel state so the choice survives reloads,
+  // and tracks the spawned pid so we can kill the instance on unmount.
+  const launchNewInstance = useCallback(
+    async (bundleId: string, persistToPanel: boolean) => {
+      if (launching) return;
+      setError(null);
+      setLaunching(true);
+      stopStream();
+      // Kill any prior instance from this panel first.
+      if (launchedPidRef.current) {
+        try {
+          await window.canvasAPI.killApp(launchedPidRef.current);
+        } catch {
+          // ignore — may already be gone
+        }
+        launchedPidRef.current = null;
+      }
+
+      try {
+        const result = await window.canvasAPI.launchApp(bundleId);
+        if (!result.ok || !result.pid) {
+          setError(result.error || 'Launch failed');
+          return;
+        }
+        launchedPidRef.current = result.pid;
+        launchedBundleIdRef.current = bundleId;
+        launchedAppNameRef.current = result.appName || bundleId;
+
+        if (persistToPanel && panel.content.type === 'embedded') {
+          updatePanel(panel.id, {
+            content: { type: 'embedded', ref: { appBundleId: bundleId } },
+          });
+        }
+
+        // Poll desktopCapturer until the new window shows up. Apps take
+        // 100-1500ms to register a window after launch.
+        const deadline = Date.now() + 6000;
+        let found: Source | null = null;
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 350));
+          try {
+            const list = await window.canvasAPI.listDesktopSources();
+            setSources(list);
+            found = list.find((s) => s.pid === result.pid) || null;
+            if (found) break;
+          } catch {
+            // ignore — keep polling
+          }
+        }
+        if (!found) {
+          setError(
+            `Launched ${result.appName} (pid ${result.pid}) but no window appeared. The app may have launched in the background.`
+          );
+          return;
+        }
+        await captureBySourceId(found.id, result.appName || found.name);
+      } catch (err) {
+        setError((err as Error).message);
+      } finally {
+        setLaunching(false);
+      }
+    },
+    [launching, stopStream, captureBySourceId, updatePanel, panel.id, panel.content.type]
+  );
+
+  const stopLaunched = useCallback(async () => {
     stopStream();
-    setTimeout(() => startCapture(), 100);
-  }, [stopStream, startCapture]);
+    if (launchedPidRef.current) {
+      try {
+        await window.canvasAPI.killApp(launchedPidRef.current);
+      } catch {
+        // ignore
+      }
+      launchedPidRef.current = null;
+    }
+  }, [stopStream]);
+
+  // Re-mirror: stop the current stream and re-launch the same app.
+  const relaunch = useCallback(() => {
+    const bundleId = launchedBundleIdRef.current || prefs.appBundleId;
+    if (bundleId) void launchNewInstance(bundleId, false);
+  }, [launchNewInstance, prefs.appBundleId]);
+
+  // Load the running-windows list from the main process on mount.
+  const refreshSources = useCallback(async () => {
+    setSourcesLoading(true);
+    try {
+      const list = await window.canvasAPI.listDesktopSources();
+      setSources(list);
+    } catch {
+      // Non-fatal — quick-pick just won't show.
+    } finally {
+      setSourcesLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshSources();
+  }, [refreshSources]);
+
+  // Group sources by app id; filter to one window per app by default to
+  // keep the sidebar tidy, but show "more windows" count.
+  const groupedByApp = (() => {
+    const groups = new Map<string, Source[]>();
+    for (const s of sources) {
+      const id = nameToAppId(s.name);
+      // Skip our own window + helper entries.
+      if (id === 'com.electron.canvas-workspace') continue;
+      if (s.name === 'Window Server' || s.name === 'ScreenCaptureService') continue;
+      const key = id || s.name;
+      const arr = groups.get(key) ?? [];
+      arr.push(s);
+      groups.set(key, arr);
+    }
+    return Array.from(groups.entries())
+      .map(([key, wins]) => {
+        const app = COMMON_APPS.find((a) => a.id === key);
+        return {
+          key,
+          id: key,
+          name: app?.name ?? wins[0].name,
+          icon: app?.icon ?? '🪟',
+          windows: wins,
+        };
+      })
+      .sort((a, b) => {
+        const ai = COMMON_APPS.findIndex((c) => c.id === a.id);
+        const bi = COMMON_APPS.findIndex((c) => c.id === b.id);
+        if (ai === -1 && bi === -1) return a.name.localeCompare(b.name);
+        if (ai === -1) return 1;
+        if (bi === -1) return -1;
+        return ai - bi;
+      });
+  })();
 
   return (
     <div
@@ -140,40 +355,215 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
       ) : (
         <div
           style={{
-            padding: 24,
-            textAlign: 'center',
-            color: '#888',
+            width: '100%',
+            height: '100%',
+            overflowY: 'auto',
+            padding: 16,
+            color: '#d0d0d0',
             fontSize: 12,
-            maxWidth: 360,
+            boxSizing: 'border-box',
           }}
         >
-          <div style={{ fontSize: 28, marginBottom: 8, color: '#d0d0d0' }}>🪞</div>
-          <div style={{ fontWeight: 500, color: '#d0d0d0', marginBottom: 6, fontSize: 14 }}>
-            App Mirror
-          </div>
-          <div style={{ marginBottom: 12, lineHeight: 1.5 }}>
-            Capture a window from another app and display it inside this panel.
-            The stream is a one-way mirror — interact with the real app window directly.
+          <div style={{ textAlign: 'center', marginBottom: 12 }}>
+            <div style={{ fontSize: 24, color: '#d0d0d0' }}>🪞</div>
+            <div style={{ fontWeight: 500, fontSize: 14, margin: '4px 0' }}>App Launcher</div>
+            <div style={{ color: '#888', lineHeight: 1.4, maxWidth: 360, margin: '0 auto' }}>
+              Pick an app to launch a new instance. The window streams in
+              here; closing the panel kills the spawned process. Use
+              "Mirror existing" to capture a window that's already open.
+            </div>
           </div>
 
-          <button
-            onClick={startCapture}
-            data-testid="embedded-pick"
+          <div
             style={{
-              padding: '8px 16px',
-              background: '#5a9fd4',
-              color: '#1a1a1a',
-              border: 'none',
-              borderRadius: 4,
-              fontSize: 12,
-              fontWeight: 500,
-              cursor: 'pointer',
+              marginTop: 8,
+              padding: 10,
+              background: '#1a1a1a',
+              border: '1px solid #2a2a2a',
+              borderRadius: 6,
             }}
           >
-            Pick a window…
-          </button>
+            <div
+              style={{
+                color: '#888',
+                fontSize: 10,
+                textTransform: 'uppercase',
+                letterSpacing: 0.5,
+                marginBottom: 8,
+              }}
+            >
+              Quick launch — new instance
+            </div>
+            {launching && (
+              <div style={{ color: '#5a9fd4', fontSize: 11, marginBottom: 8 }}>
+                Launching…
+              </div>
+            )}
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                gap: 6,
+              }}
+            >
+              {COMMON_APPS.map((a) => (
+                <button
+                  key={a.id}
+                  onClick={() => launchNewInstance(a.id, true)}
+                  disabled={launching}
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    gap: 4,
+                    padding: '10px 6px',
+                    background: '#252525',
+                    border: '1px solid #2a2a2a',
+                    borderRadius: 6,
+                    cursor: launching ? 'default' : 'pointer',
+                    color: '#d0d0d0',
+                    fontFamily: 'inherit',
+                    opacity: launching ? 0.5 : 1,
+                  }}
+                  onMouseEnter={(e) => {
+                    if (launching) return;
+                    e.currentTarget.style.background = '#2f2f2f';
+                    e.currentTarget.style.borderColor = '#3a3a3a';
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = '#252525';
+                    e.currentTarget.style.borderColor = '#2a2a2a';
+                  }}
+                >
+                  <div style={{ fontSize: 24 }}>{a.icon}</div>
+                  <div style={{ fontSize: 11, fontWeight: 500, textAlign: 'center' }}>
+                    {a.name}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
 
-          <div style={{ marginTop: 14 }}>
+          <div
+            style={{
+              marginTop: 8,
+              padding: 10,
+              background: '#1a1a1a',
+              border: '1px solid #2a2a2a',
+              borderRadius: 6,
+            }}
+          >
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                marginBottom: 8,
+              }}
+            >
+              <div style={{ color: '#888', fontSize: 10, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Mirror existing
+              </div>
+              <button
+                onClick={refreshSources}
+                disabled={sourcesLoading}
+                style={{
+                  background: 'transparent',
+                  border: '1px solid #3a3a3a',
+                  color: '#888',
+                  fontSize: 10,
+                  padding: '2px 6px',
+                  borderRadius: 3,
+                  cursor: sourcesLoading ? 'default' : 'pointer',
+                  opacity: sourcesLoading ? 0.5 : 1,
+                }}
+              >
+                {sourcesLoading ? '…' : '↻ refresh'}
+              </button>
+            </div>
+            {sourcesLoading && sources.length === 0 ? (
+              <div style={{ color: '#666', fontSize: 11, padding: 4 }}>Scanning windows…</div>
+            ) : groupedByApp.length === 0 ? (
+              <div style={{ color: '#666', fontSize: 11, padding: 4 }}>
+                No other windows open. Open something then refresh.
+              </div>
+            ) : (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
+                  gap: 6,
+                }}
+              >
+                {groupedByApp.map((g) => (
+                  <button
+                    key={g.key}
+                    onClick={() => captureBySourceId(g.windows[0].id, g.name)}
+                    style={{
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      gap: 4,
+                      padding: '10px 6px',
+                      background: '#252525',
+                      border: '1px solid #2a2a2a',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      color: '#d0d0d0',
+                      fontFamily: 'inherit',
+                    }}
+                    onMouseEnter={(e) => {
+                      e.currentTarget.style.background = '#2f2f2f';
+                      e.currentTarget.style.borderColor = '#3a3a3a';
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = '#252525';
+                      e.currentTarget.style.borderColor = '#2a2a2a';
+                    }}
+                  >
+                    {g.windows[0].appIcon ? (
+                      <img
+                        src={g.windows[0].appIcon}
+                        alt=""
+                        style={{ width: 32, height: 32, borderRadius: 6 }}
+                      />
+                    ) : (
+                      <div style={{ fontSize: 24 }}>{g.icon}</div>
+                    )}
+                    <div style={{ fontSize: 11, fontWeight: 500, textAlign: 'center' }}>
+                      {g.name}
+                    </div>
+                    {g.windows.length > 1 && (
+                      <div style={{ fontSize: 9, color: '#666' }}>
+                        +{g.windows.length - 1} more
+                      </div>
+                    )}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div style={{ textAlign: 'center', margin: '14px 0 8px' }}>
+            <button
+              onClick={startPicker}
+              data-testid="embedded-pick"
+              style={{
+                padding: '8px 16px',
+                background: '#5a9fd4',
+                color: '#1a1a1a',
+                border: 'none',
+                borderRadius: 4,
+                fontSize: 12,
+                fontWeight: 500,
+                cursor: 'pointer',
+              }}
+            >
+              Pick another window…
+            </button>
+          </div>
+
+          <div style={{ textAlign: 'center' }}>
             <button
               onClick={() => setShowSettings((s) => !s)}
               style={{
@@ -196,7 +586,7 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
                 padding: 10,
                 background: '#1a1a1a',
                 border: '1px solid #2a2a2a',
-                borderRadius: 4,
+                borderRadius: 6,
                 textAlign: 'left',
               }}
             >
@@ -273,6 +663,7 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
                 color: '#ff8888',
                 borderRadius: 3,
                 fontSize: 11,
+                textAlign: 'center',
               }}
             >
               {error}
@@ -328,8 +719,8 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
           }}
         >
           <button
-            onClick={reMirror}
-            title="Re-mirror"
+            onClick={relaunch}
+            title="Re-launch"
             style={{
               padding: '4px 8px',
               background: 'rgba(0, 0, 0, 0.7)',
@@ -340,10 +731,10 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
               cursor: 'pointer',
             }}
           >
-            ↻ re-mirror
+            ↻ relaunch
           </button>
           <button
-            onClick={stopStream}
+            onClick={stopLaunched}
             style={{
               padding: '4px 8px',
               background: 'rgba(0, 0, 0, 0.7)',

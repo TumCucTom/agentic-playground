@@ -3,13 +3,14 @@ import { PanelType } from '../shared/types';
 import { useCanvasStore } from './state/canvasStore';
 import { createPanelOfType } from './panels/factory';
 import { viewportToCanvas } from './utils/coordinates';
+import { Tooltip } from './Tooltip';
 
-const ITEMS: { type: PanelType; label: string; icon: string }[] = [
-  { type: 'terminal', label: 'Terminal', icon: '⌨' },
+const ITEMS: { type: PanelType; label: string; icon: string; shortcut?: string }[] = [
+  { type: 'terminal', label: 'Terminal', icon: '⌨', shortcut: '⌘T' },
   { type: 'editor', label: 'Editor', icon: '✎' },
   { type: 'fileExplorer', label: 'Files', icon: '📁' },
   { type: 'webview', label: 'Web', icon: '🌐' },
-  { type: 'markdownPreview', label: 'MD', icon: '¶' },
+  { type: 'markdownPreview', label: 'Markdown', icon: '¶' },
   { type: 'embedded', label: 'App Mirror', icon: '🪞' },
 ];
 
@@ -18,7 +19,6 @@ export const Toolbox: React.FC = () => {
   const viewport = useCanvasStore((s) => s.viewport);
 
   const handleAdd = (type: PanelType) => {
-    // Place at viewport center
     const centerX = window.innerWidth / 2;
     const centerY = window.innerHeight / 2;
     const canvasPt = viewportToCanvas(centerX, centerY, viewport);
@@ -46,35 +46,36 @@ export const Toolbox: React.FC = () => {
       }}
     >
       {ITEMS.map((item) => (
-        <button
-          key={item.type}
-          onClick={() => handleAdd(item.type)}
-          title={item.label}
-          style={{
-            width: 40,
-            height: 40,
-            borderRadius: 8,
-            backgroundColor: 'transparent',
-            border: '1px solid transparent',
-            color: '#d0d0d0',
-            fontSize: 18,
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            WebkitAppRegion: 'no-drag',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.backgroundColor = '#2a2a2a';
-            e.currentTarget.style.borderColor = '#3a3a3a';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = 'transparent';
-            e.currentTarget.style.borderColor = 'transparent';
-          }}
-        >
-          {item.icon}
-        </button>
+        <Tooltip key={item.type} label={item.label} shortcut={item.shortcut} side="right">
+          <button
+            onClick={() => handleAdd(item.type)}
+            aria-label={item.label}
+            style={{
+              width: 40,
+              height: 40,
+              borderRadius: 8,
+              backgroundColor: 'transparent',
+              border: '1px solid transparent',
+              color: '#d0d0d0',
+              fontSize: 18,
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              WebkitAppRegion: 'no-drag',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.backgroundColor = '#2a2a2a';
+              e.currentTarget.style.borderColor = '#3a3a3a';
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.backgroundColor = 'transparent';
+              e.currentTarget.style.borderColor = 'transparent';
+            }}
+          >
+            {item.icon}
+          </button>
+        </Tooltip>
       ))}
     </div>
   );

@@ -1,8 +1,15 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Canvas } from './Canvas';
 import { Toolbox } from './Toolbox';
 import { useCanvasStore } from './state/canvasStore';
 import { CanvasAPI } from '../preload';
+import { Tooltip } from './Tooltip';
+import {
+  BackgroundPicker,
+  BackgroundMode,
+  loadBackgroundMode,
+  saveBackgroundMode,
+} from './BackgroundPicker';
 
 declare global {
   interface Window {
@@ -12,11 +19,27 @@ declare global {
 
 export const App: React.FC = () => {
   const initialize = useCanvasStore((s) => s.initialize);
-  const saveCanvas = useCanvasStore((s) => s.saveCanvas);
   const isDirty = useCanvasStore((s) => s.isDirty);
   const markClean = useCanvasStore((s) => s.markClean);
   const serialize = useCanvasStore((s) => s.serialize);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const persist = useCallback((state: ReturnType<typeof serialize>) => {
+    return window.canvasAPI.saveCanvas(state);
+  }, []);
+
+  const [background, setBackground] = useState<BackgroundMode>(() => {
+    const initial = loadBackgroundMode();
+    // Apply to the BrowserWindow on first paint
+    void window.canvasAPI.setWindowBackground(initial).catch(() => {});
+    return initial;
+  });
+
+  const handleBackgroundChange = useCallback((mode: BackgroundMode) => {
+    setBackground(mode);
+    saveBackgroundMode(mode);
+    void window.canvasAPI.setWindowBackground(mode).catch(() => {});
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,7 +63,7 @@ export const App: React.FC = () => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
       try {
-        void saveCanvas(serialize());
+        void persist(serialize());
         markClean();
       } catch (err) {
         console.error('Failed to save canvas state:', err);
@@ -49,7 +72,7 @@ export const App: React.FC = () => {
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [isDirty, serialize, saveCanvas, markClean]);
+  }, [isDirty, serialize, persist, markClean]);
 
   // Cmd+S forces save
   useEffect(() => {
@@ -57,7 +80,7 @@ export const App: React.FC = () => {
       if ((e.metaKey || e.ctrlKey) && e.key === 's') {
         e.preventDefault();
         try {
-          void saveCanvas(serialize());
+          void persist(serialize());
           markClean();
         } catch (err) {
           console.error('Failed to save canvas state:', err);
@@ -66,7 +89,7 @@ export const App: React.FC = () => {
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [saveCanvas, serialize, markClean]);
+  }, [persist, serialize, markClean]);
 
   // Auto-focus + auto-promote on task completion (smart orchestration)
   useEffect(() => {
@@ -121,9 +144,9 @@ export const App: React.FC = () => {
 
   return (
     <>
-      <TitleBar />
+      <TitleBar background={background} onBackgroundChange={handleBackgroundChange} />
       <Toolbox />
-      <Canvas />
+      <Canvas background={background} />
       <LayoutToolbar />
     </>
   );
@@ -153,29 +176,34 @@ const LayoutToolbar: React.FC = () => {
         pointerEvents: 'auto',
       }}
     >
-      <button
-        onClick={() => applyOneBigNSmall(selected.map((p) => p.id))}
-        style={{
-          padding: '6px 10px',
-          background: '#2a2a2a',
-          color: '#d0d0d0',
-          border: '1px solid #3a3a3a',
-          borderRadius: 4,
-          fontSize: 11,
-          cursor: 'pointer',
-          fontFamily: 'inherit',
-        }}
-        onMouseEnter={(e) => (e.currentTarget.style.background = '#3a3a3a')}
-        onMouseLeave={(e) => (e.currentTarget.style.background = '#2a2a2a')}
-        title="Layout: 1 Big + N Small"
-      >
-        1 Big + N Small
-      </button>
+      <Tooltip label="Layout: 1 Big + N Small" side="bottom">
+        <button
+          onClick={() => applyOneBigNSmall(selected.map((p) => p.id))}
+          aria-label="Apply 1 Big + N Small layout"
+          style={{
+            padding: '6px 10px',
+            background: '#2a2a2a',
+            color: '#d0d0d0',
+            border: '1px solid #3a3a3a',
+            borderRadius: 4,
+            fontSize: 11,
+            cursor: 'pointer',
+            fontFamily: 'inherit',
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.background = '#3a3a3a')}
+          onMouseLeave={(e) => (e.currentTarget.style.background = '#2a2a2a')}
+        >
+          1 Big + N Small
+        </button>
+      </Tooltip>
     </div>
   );
 };
 
-const TitleBar: React.FC = () => {
+const TitleBar: React.FC<{
+  background: BackgroundMode;
+  onBackgroundChange: (mode: BackgroundMode) => void;
+}> = ({ background, onBackgroundChange }) => {
   const workspaceName = useCanvasStore((s) => s.workspaceName);
   return (
     <div
@@ -195,11 +223,15 @@ const TitleBar: React.FC = () => {
         fontSize: 12,
         color: '#888',
         zIndex: 2000,
+        gap: 8,
       }}
     >
       <span>Canvas Workspace</span>
-      <span style={{ marginLeft: 10, color: '#666' }}>·</span>
-      <span style={{ marginLeft: 10 }}>{workspaceName}</span>
+      <span style={{ color: '#666' }}>·</span>
+      <span>{workspaceName}</span>
+      <div style={{ marginLeft: 'auto', WebkitAppRegion: 'no-drag' }}>
+        <BackgroundPicker mode={background} onChange={onBackgroundChange} />
+      </div>
     </div>
   );
 };

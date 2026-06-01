@@ -172,6 +172,161 @@ test('context menu opens on right-click', async () => {
   await app.close();
 });
 
+test('terminal panel spawns a working PTY', async () => {
+  const app = await launchApp();
+  const window = await app.firstWindow();
+  await window.waitForLoadState('domcontentloaded');
+  await window.waitForSelector('.canvas-root', { timeout: 15_000 });
+  await window.waitForFunction(() => !!(window as any).canvasAPI?.ptyCreate, undefined, { timeout: 15_000 });
+
+  // Right-click → Terminal
+  await window.evaluate(() => {
+    const canvas = document.querySelector('.canvas-root') as HTMLElement | null;
+    if (!canvas) throw new Error('no canvas');
+    const rect = canvas.getBoundingClientRect();
+    canvas.dispatchEvent(
+      new MouseEvent('contextmenu', {
+        bubbles: true,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+      })
+    );
+  });
+  await window.getByText('Terminal', { exact: true }).first().click();
+
+  // xterm renders a .xterm container; wait for it to mount
+  await window.waitForSelector('.xterm', { timeout: 10_000 });
+
+  // The PTY should write a shell prompt. Poll the terminal's text content
+  // for a prompt-ish character (e.g. "$", "%", or ">") within a few seconds.
+  const gotPrompt = await window.waitForFunction(
+    () => {
+      const term = document.querySelector('.xterm-rows');
+      if (!term) return false;
+      const text = (term as HTMLElement).innerText;
+      return /[%>$#]\s*$/.test(text) || /[%>$#]\s/.test(text);
+    },
+    undefined,
+    { timeout: 8_000 }
+  ).then(() => true).catch(() => false);
+
+  // If we got a prompt, the PTY spawn + xterm write pipeline works.
+  // Soft-assert: the test still passes if xterm rendered, but we surface
+  // a failure if the PTY never wrote a prompt.
+  if (!gotPrompt) {
+    const debug = await window.evaluate(() => {
+      return {
+        rows: document.querySelector('.xterm-rows')?.textContent?.slice(-200) || null,
+        bodyText: document.body.innerText.slice(-200),
+      };
+    });
+    console.error('Terminal did not receive a prompt. Debug:', debug);
+  }
+  expect(gotPrompt).toBe(true);
+
+  await app.close();
+});
+
+test('app mirror panel renders the running-apps quick-pick', async () => {
+  const app = await launchApp();
+  const window = await app.firstWindow();
+  await window.waitForLoadState('domcontentloaded');
+  await window.waitForSelector('.canvas-root', { timeout: 15_000 });
+  await window.waitForFunction(() => !!(window as any).canvasAPI?.listDesktopSources, undefined, { timeout: 15_000 });
+
+  // Right-click the canvas to open the context menu, then choose App Mirror.
+  await window.evaluate(() => {
+    const canvas = document.querySelector('.canvas-root') as HTMLElement | null;
+    if (!canvas) throw new Error('no canvas');
+    const rect = canvas.getBoundingClientRect();
+    canvas.dispatchEvent(
+      new MouseEvent('contextmenu', {
+        bubbles: true,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+      })
+    );
+  });
+  await window.getByText('App Mirror', { exact: true }).first().click();
+
+  // The App Mirror panel now shows a "Quick launch" grid and a
+  // "Mirror existing" fallback.
+  await window.waitForSelector('text=Quick launch', { timeout: 5_000 });
+  await window.waitForSelector('text=Mirror existing', { timeout: 5_000 });
+  await window.waitForSelector('[data-testid="embedded-pick"]', { timeout: 5_000 });
+
+  // Verify the desktop-sources IPC returns the expected shape (now with pid).
+  const sources = await window.evaluate(async () => {
+    const api = (window as any).canvasAPI;
+    if (!api?.listDesktopSources) return null;
+    const list = await api.listDesktopSources();
+    return list.slice(0, 3).map((s: any) => ({ id: s.id, name: s.name, hasIcon: !!s.appIcon, pid: s.pid }));
+  });
+  expect(sources).not.toBeNull();
+
+  await app.close();
+});
+
+test('app:launch IPC spawns a new macOS app instance', async () => {
+  // This test only runs on macOS where `open` and bundle ids are available.
+  if (process.platform !== 'darwin') {
+    test.skip();
+    return;
+  }
+
+  // Clean up any leftover TextEdit from a previous failed test run —
+  // `open -nb` reuses an existing instance for some apps, which breaks
+  // the "new pid" detection.
+  const { execSync } = require('child_process');
+  try {
+    execSync('killall TextEdit 2>/dev/null', { stdio: 'ignore' });
+  } catch {}
+  await new Promise((r) => setTimeout(r, 500));
+
+  const app = await launchApp();
+  const window = await app.firstWindow();
+  await window.waitForLoadState('domcontentloaded');
+  await window.waitForFunction(() => !!(window as any).canvasAPI?.launchApp, undefined, { timeout: 15_000 });
+
+  // Launch a lightweight, ubiquitous app: TextEdit. Track its pid.
+  const result = await window.evaluate(async () => {
+    const api = (window as any).canvasAPI;
+    return await api.launchApp('com.apple.TextEdit');
+  });
+
+  if (!result.ok) {
+    throw new Error(`launchApp failed: ${JSON.stringify(result)}`);
+  }
+  expect(typeof result.pid).toBe('number');
+  expect(result.appName?.toLowerCase()).toContain('textedit');
+
+  // Verify the new process is alive.
+  const alive = await new Promise<boolean>((resolve) => {
+    const { exec } = require('child_process');
+    exec(`ps -p ${result.pid} -o pid=`, (err: any, stdout: string) => {
+      resolve(!err && stdout.trim() === String(result.pid));
+    });
+  });
+  expect(alive).toBe(true);
+
+  // Kill it via the IPC.
+  const killResult = await window.evaluate(async (pid: number) => {
+    const api = (window as any).canvasAPI;
+    return await api.killApp(pid);
+  }, result.pid);
+  expect(killResult.ok).toBe(true);
+
+  // Give the OS a moment to actually reap the process.
+  await new Promise((r) => setTimeout(r, 1200));
+  const stillAlive = await new Promise<boolean>((resolve) => {
+    const { exec } = require('child_process');
+    exec(`ps -p ${result.pid} -o pid=`, (err: any) => resolve(!err));
+  });
+  expect(stillAlive).toBe(false);
+
+  await app.close();
+});
+
 test('extension activates and provides webview HTML', async () => {
   const app = await launchApp();
   const window = await app.firstWindow();

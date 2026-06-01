@@ -35,9 +35,14 @@ VS Code–shaped extension host so existing extension patterns can be reused.
   `~/Library/Application Support/canvas-workspace/workspaces`. Quick
   switcher in the toolbar.
 - **Auto-save** every 500 ms; Cmd+S to force a save.
-- **App Mirror:** capture a window from any other app and display it
-  inside a panel via `getDisplayMedia`. One-way mirror — input still
-  goes to the real app.
+- **App Launcher / Mirror:** pick a macOS app from the quick-launch
+  grid (VS Code, Chrome, Terminal, Safari, etc.) and the panel
+  spawns a *new instance* of that app and streams its window in
+  place — same shape as the terminal panel spawning a new shell. The
+  spawned process is killed when the panel closes. A "Mirror
+  existing" fallback lets you capture a window that's already open,
+  and the system picker (`getDisplayMedia`) handles anything else.
+  The stream is one-way — input still goes to the real app.
 - **File browser & editor wired to the real filesystem** through IPC.
 
 ## Running it
@@ -114,9 +119,15 @@ Adding a new bundled extension:
 3. The extension's `module.exports = function(vscode) { ... }` runs on
    activation. Use `vscode.window.registerWebviewViewProvider('viewId', { ... })`.
 
-Marketplace extensions need additional shim work — the `vscode` API
-surface we implement is intentionally partial. See
-`src/extensionHost/api.ts` for what's there.
+> **Marketplace extensions are not supported.** The shim implements a
+> useful subset of the `vscode` API for our three bundled extensions
+> (commands, window messages, webviews, status bar, output channels,
+> progress, tree views, workspace.fs, Uri, EventEmitter, env, config),
+> but there is no `.vsix` install path, no marketplace contract, no
+> activation events, no `ExtensionContext`-based storage, and no
+> language-server or debug-adapter plumbing. Running a real extension
+> would need both shim work and a host-of-hosts layer. See
+> `src/extensionHost/api.ts` for the actual surface.
 
 ## Project layout
 
@@ -145,14 +156,14 @@ bundled-extensions/    extensions shipped with the app
 docs/superpowers/specs design spec
 tests/
   unit/                vitest unit tests (32 tests)
-  e2e/                 playwright electron end-to-end tests
+  e2e/                 playwright electron end-to-end tests (8 tests)
 ```
 
 ## Tests
 
 ```bash
 npm test           # 32 unit tests (vitest)
-npm run test:e2e   # 5 end-to-end tests (playwright + electron)
+npm run test:e2e   # 8 end-to-end tests (playwright + electron)
 ```
 
 The E2E suite launches the actual app via `_electron` from Playwright,
@@ -175,15 +186,17 @@ they don't share state.
 
 ## Honest limitations
 
-- **App embedding is a one-way screen mirror**, not real window
-  reparenting. macOS does not allow reparenting another app's window
-  into a non-native view. Interact with the source app directly.
-- **Real marketplace extensions are not yet supported** — only the
-  bundled three. The shim implements a useful subset of the `vscode`
-  API; running an arbitrary marketplace extension would need per-
-  extension shimming.
-- **The Terminal panel is real PTY**, but terminal state is not
-  persisted across app restarts. Each launch is a fresh shell.
+- **App Launcher is a screen mirror of a spawned process**, not real
+  window reparenting. macOS does not allow reparenting another app's
+  window into a non-native view. The launcher spawns a *new* instance
+  of the app (`open -nb <bundle>`) and streams its window — the
+  spawned process is fully isolated and gets its own user-data dir
+  per panel. Clicks and keystrokes still go to the real app.
+- **Marketplace extensions are not supported.** Only the three bundled
+  extensions can run. See [Extensions](#extensions) for what would be
+  needed to host real `.vsix` packages.
+- **Terminal state is not persisted** across app restarts. Each launch
+  is a fresh shell.
 
 ## License
 

@@ -6,6 +6,10 @@ function uuid(): string {
 
 const DEFAULT_SIZE = { width: 500, height: 360 };
 
+// The renderer has no `process` global; default to the user's home
+// directory. The file explorer can navigate from there.
+const DEFAULT_ROOT_PATH = '~';
+
 const FACTORIES: Record<
   PanelType,
   (x: number, y: number) => { title: string; content: ContentRef }
@@ -16,7 +20,7 @@ const FACTORIES: Record<
       type: 'terminal',
       ref: {
         shell: '/bin/zsh',
-        cwd: process.cwd?.() || '/',
+        cwd: DEFAULT_ROOT_PATH,
         cols: 80,
         rows: 24,
       },
@@ -28,7 +32,7 @@ const FACTORIES: Record<
   }),
   fileExplorer: (x, y) => ({
     title: 'Files',
-    content: { type: 'fileExplorer', ref: { rootPath: process.cwd?.() || '/' } },
+    content: { type: 'fileExplorer', ref: { rootPath: DEFAULT_ROOT_PATH } },
   }),
   webview: (x, y) => ({
     title: 'Web',

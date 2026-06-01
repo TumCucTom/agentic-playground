@@ -1,15 +1,20 @@
-import React, { useRef, useEffect, useCallback } from 'react';
+import React, { useRef, useEffect, useCallback, useState, useMemo } from 'react';
 import { useCanvasStore } from './state/canvasStore';
 import { PanelView } from './Panel';
 import { ContextMenu } from './ContextMenu';
 import { viewportToCanvas } from './utils/coordinates';
 import { PanelType } from '../shared/types';
 import { createPanelOfType } from './panels/factory';
+import { BackgroundMode } from './BackgroundPicker';
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
 
-export const Canvas: React.FC = () => {
+interface CanvasProps {
+  background: BackgroundMode;
+}
+
+export const Canvas: React.FC<CanvasProps> = ({ background }) => {
   const canvasRef = useRef<HTMLDivElement>(null);
   const dragStateRef = useRef<{
     type: 'pan' | 'move' | 'resize' | null;
@@ -41,6 +46,25 @@ export const Canvas: React.FC = () => {
     canvasY: number;
   } | null>(null);
 
+  // Detect OS color scheme for 'system' background
+  const [systemDark, setSystemDark] = useState<boolean>(() =>
+    typeof window !== 'undefined' && window.matchMedia
+      ? window.matchMedia('(prefers-color-scheme: dark)').matches
+      : true
+  );
+  useEffect(() => {
+    if (background !== 'system' || typeof window === 'undefined' || !window.matchMedia) return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const handler = (e: MediaQueryListEvent) => setSystemDark(e.matches);
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [background]);
+
+  const resolvedBackground: 'black' | 'white' | 'translucent' = useMemo(() => {
+    if (background === 'system') return systemDark ? 'black' : 'white';
+    return background;
+  }, [background, systemDark]);
+
   // Wheel handler for pan and zoom
   useEffect(() => {
     const el = canvasRef.current;
@@ -54,11 +78,11 @@ export const Canvas: React.FC = () => {
 
       if (e.metaKey || e.ctrlKey) {
         // Zoom
-        const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
+        const factor = e.deltaY < 0 ? 1.05 : 1 / 1.05;
         zoomViewport(factor, mouseX, mouseY);
       } else {
-        // Pan
-        panViewport(-e.deltaX / viewport.zoom, -e.deltaY / viewport.zoom);
+        // Pan — content follows finger (natural scroll)
+        panViewport(e.deltaX / viewport.zoom, e.deltaY / viewport.zoom);
       }
     };
 
@@ -69,7 +93,6 @@ export const Canvas: React.FC = () => {
   // Keyboard shortcuts
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
-      // Ignore when typing in an input
       const target = e.target as HTMLElement;
       if (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) {
         return;
@@ -83,12 +106,11 @@ export const Canvas: React.FC = () => {
           selectedPanelIds.forEach((id) => useCanvasStore.getState().deletePanel(id));
         }
       } else if (e.key === '0' && (e.metaKey || e.ctrlKey)) {
-        // Fit to view
         useCanvasStore.getState().setViewport({ x: 0, y: 0, zoom: 1 });
       } else if (e.key === '=' && (e.metaKey || e.ctrlKey)) {
-        zoomViewport(1.2);
+        zoomViewport(1.1);
       } else if (e.key === '-' && (e.metaKey || e.ctrlKey)) {
-        zoomViewport(1 / 1.2);
+        zoomViewport(1 / 1.1);
       } else if (e.key === 'z' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
         e.preventDefault();
         useCanvasStore.getState().undo();
@@ -106,13 +128,14 @@ export const Canvas: React.FC = () => {
   }, [selectedPanelIds, setSelected, zoomViewport]);
 
   // Sort panels by zOrder for rendering
-  const sortedPanels = React.useMemo(() => [...panels].sort((a, b) => a.zOrder - b.zOrder), [panels]);
+  const sortedPanels = React.useMemo(
+    () => [...panels].sort((a, b) => a.zOrder - b.zOrder),
+    [panels]
+  );
 
-  // Mouse down on empty canvas: start panning
   const handleCanvasMouseDown = useCallback(
     (e: React.MouseEvent) => {
       if (e.button === 1 || (e.button === 0 && e.altKey) || (e.button === 0 && e.shiftKey && e.metaKey)) {
-        // Middle button, or alt+click, or cmd+shift+click = pan
         e.preventDefault();
         dragStateRef.current = {
           type: 'pan',
@@ -121,14 +144,12 @@ export const Canvas: React.FC = () => {
         };
         setSelected([]);
       } else if (e.button === 0 && e.target === e.currentTarget) {
-        // Plain click on empty canvas
         setSelected([]);
       }
     },
     [setSelected]
   );
 
-  // Mouse move handler
   useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       const drag = dragStateRef.current;
@@ -164,7 +185,6 @@ export const Canvas: React.FC = () => {
     };
   }, [viewport.zoom, panViewport, movePanel, resizePanel]);
 
-  // Right-click context menu
   const handleContextMenu = useCallback(
     (e: React.MouseEvent) => {
       e.preventDefault();
@@ -188,13 +208,44 @@ export const Canvas: React.FC = () => {
     [contextMenu, addPanel]
   );
 
-  // Click outside context menu closes it
   useEffect(() => {
     if (!contextMenu) return;
     const handler = () => setContextMenu(null);
     setTimeout(() => window.addEventListener('click', handler), 0);
     return () => window.removeEventListener('click', handler);
   }, [contextMenu]);
+
+  // Build the background style based on the current mode
+  const bgStyle: React.CSSProperties = (() => {
+    const dotSize = 20 * viewport.zoom;
+    const dotPos = `${-viewport.x * viewport.zoom}px ${-viewport.y * viewport.zoom}px`;
+    if (resolvedBackground === 'translucent') {
+      return {
+        backgroundColor: 'transparent',
+        backgroundImage:
+          'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.08) 1px, transparent 0)',
+        backgroundSize: `${dotSize}px ${dotSize}px`,
+        backgroundPosition: dotPos,
+      };
+    }
+    if (resolvedBackground === 'white') {
+      return {
+        backgroundColor: '#ffffff',
+        backgroundImage:
+          'radial-gradient(circle at 1px 1px, rgba(0,0,0,0.18) 1px, transparent 0)',
+        backgroundSize: `${dotSize}px ${dotSize}px`,
+        backgroundPosition: dotPos,
+      };
+    }
+    // black / system-dark
+    return {
+      backgroundColor: '#0f0f0f',
+      backgroundImage:
+        'radial-gradient(circle at 1px 1px, #2a2a2a 1px, transparent 0)',
+      backgroundSize: `${dotSize}px ${dotSize}px`,
+      backgroundPosition: dotPos,
+    };
+  })();
 
   return (
     <div
@@ -209,11 +260,7 @@ export const Canvas: React.FC = () => {
         right: 0,
         bottom: 0,
         overflow: 'hidden',
-        backgroundColor: '#0f0f0f',
-        backgroundImage:
-          'radial-gradient(circle at 1px 1px, #2a2a2a 1px, transparent 0)',
-        backgroundSize: `${20 * viewport.zoom}px ${20 * viewport.zoom}px`,
-        backgroundPosition: `${-viewport.x * viewport.zoom}px ${-viewport.y * viewport.zoom}px`,
+        ...bgStyle,
         cursor: dragStateRef.current.type === 'pan' ? 'grabbing' : 'default',
       }}
     >

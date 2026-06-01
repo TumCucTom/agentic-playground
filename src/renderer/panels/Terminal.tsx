@@ -38,11 +38,23 @@ export const TerminalPanel: React.FC<Props> = ({ panel }) => {
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(containerRef.current);
-    try {
-      fit.fit();
-    } catch {
-      // ignore
-    }
+    // xterm 5.3.0 has a race: the render service's `dimensions` getter
+    // throws if read before the renderer is wired up. Defer the first fit
+    // until the next frame, and subscribe to onRender so subsequent
+    // ResizeObserver ticks run after the renderer is ready.
+    const initialFit = () => {
+      try {
+        fit.fit();
+      } catch {
+        // ignore — the ResizeObserver tick will retry once the renderer
+        // is fully wired.
+      }
+    };
+    const onFirstRender = term.onRender(() => {
+      initialFit();
+      onFirstRender.dispose();
+    });
+    const rafId = requestAnimationFrame(initialFit);
     termRef.current = term;
     fitRef.current = fit;
 
@@ -121,6 +133,8 @@ export const TerminalPanel: React.FC<Props> = ({ panel }) => {
       cancelled = true;
       window.removeEventListener('resize', handleResize);
       resizeObserver.disconnect();
+      onFirstRender.dispose();
+      cancelAnimationFrame(rafId);
       if (unsubscribeData) unsubscribeData();
       if (unsubscribeExit) unsubscribeExit();
       if (ptyIdRef.current) {

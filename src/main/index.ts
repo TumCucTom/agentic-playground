@@ -1,6 +1,8 @@
-import { app, BrowserWindow, ipcMain, IpcMainInvokeEvent } from 'electron';
+import { app, BrowserWindow, ipcMain, IpcMainInvokeEvent, desktopCapturer, session } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
+import { spawn, execFile } from 'child_process';
 import { CanvasState, ExtensionManifest } from '../shared/types.js';
 import { ExtensionHostManager } from './extensionHostManager.js';
 import { registerPtyHandlers, ptyManager } from './ptyManager.js';
@@ -13,6 +15,15 @@ const extensionsDir = path.join(userDataPath, 'extensions');
 
 let mainWindow: BrowserWindow | null = null;
 let extensionHost: ExtensionHostManager | null = null;
+
+// Track macOS apps we launched via the App Mirror panel, so we can kill
+// them when the panel closes. Map pid → { bundleId, appName }.
+interface LaunchedApp {
+  bundleId: string;
+  appName: string;
+  spawnedAt: number;
+}
+const launchedApps = new Map<number, LaunchedApp>();
 
 function ensureDirectories(): void {
   if (!fs.existsSync(workspacesDir)) {
@@ -143,8 +154,59 @@ function loadExtensions(): ExtensionManifest[] {
   return manifests;
 }
 
+// Expand a leading "~" or "~/" to the user's home directory. Anything
+// else is returned unchanged.
+function expandHome(p: string): string {
+  if (!p) return p;
+  if (p === '~' || p.startsWith('~/')) {
+    return path.join(os.homedir(), p.slice(1));
+  }
+  return p;
+}
+
+// Poll the process list for a newly-launched app and return its pid.
+// `open -nb <bundle>` returns immediately; the actual app process is a
+// grandchild and may take a few hundred ms to register. We match by
+// pgrep-ing the app's .app bundle path (resolved via mdfind) so we
+// don't pick up unrelated processes with the same executable name
+// (VS Code's process is literally called "Electron"). The app:launch
+// handler inlines this logic now to avoid a race where `open -nb`
+// spawns the new instance faster than the BEFORE snapshot is taken.
+async function waitForAppPid(
+  appName: string,
+  bundleId: string,
+  appPath: string,
+  timeoutMs: number
+): Promise<number | null> {
+  void appName;
+  void bundleId;
+  if (!appPath) return null;
+  const pgrep = () =>
+    new Promise<number[]>((resolve) => {
+      execFile('pgrep', ['-f', appPath], (_err, stdout) => {
+        resolve(
+          stdout
+            .split('\n')
+            .map((s) => parseInt(s, 10))
+            .filter((n) => Number.isFinite(n))
+        );
+      });
+    });
+  const before = new Set(await pgrep());
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    await new Promise((r) => setTimeout(r, 200));
+    const current = await pgrep();
+    for (const p of current) {
+      if (!before.has(p)) return p;
+    }
+  }
+  return null;
+}
+
 async function readDirectoryTree(rootPath: string, maxDepth = 4, currentDepth = 0): Promise<any[]> {
   if (currentDepth >= maxDepth) return [];
+  rootPath = expandHome(rootPath);
   let entries: fs.Dirent[];
   try {
     entries = await fs.promises.readdir(rootPath, { withFileTypes: true });
@@ -232,7 +294,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('fs:readFile', async (_event: IpcMainInvokeEvent, filePath: string) => {
     try {
-      return await fs.promises.readFile(filePath, 'utf-8');
+      return await fs.promises.readFile(expandHome(filePath), 'utf-8');
     } catch (err) {
       throw new Error(`Failed to read ${filePath}: ${(err as Error).message}`);
     }
@@ -240,7 +302,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('fs:writeFile', async (_event: IpcMainInvokeEvent, filePath: string, content: string) => {
     try {
-      await fs.promises.writeFile(filePath, content, 'utf-8');
+      await fs.promises.writeFile(expandHome(filePath), content, 'utf-8');
     } catch (err) {
       throw new Error(`Failed to write ${filePath}: ${(err as Error).message}`);
     }
@@ -248,7 +310,7 @@ function registerIpcHandlers(): void {
 
   ipcMain.handle('fs:stat', async (_event: IpcMainInvokeEvent, filePath: string) => {
     try {
-      const s = await fs.promises.stat(filePath);
+      const s = await fs.promises.stat(expandHome(filePath));
       return {
         isFile: s.isFile(),
         isDirectory: s.isDirectory(),
@@ -263,6 +325,182 @@ function registerIpcHandlers(): void {
   ipcMain.handle('fs:homeDir', async () => {
     return app.getPath('home');
   });
+
+  ipcMain.handle(
+    'window:background',
+    async (_event: IpcMainInvokeEvent, mode: 'black' | 'white' | 'system' | 'translucent') => {
+      applyWindowBackground(mode);
+    }
+  );
+
+  ipcMain.handle('desktop:sources', async () => {
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ['window', 'screen'],
+        thumbnailSize: { width: 320, height: 180 },
+        fetchWindowIcons: true,
+      });
+      return sources.map((s) => ({
+        id: s.id,
+        name: s.name,
+        appIcon: s.appIcon ? s.appIcon.toDataURL() : null,
+        thumbnail: s.thumbnail ? s.thumbnail.toDataURL() : null,
+        display_id: (s as any).display_id,
+        pid: (s as any).pid ?? null,
+      }));
+    } catch (err) {
+      console.error('[desktopCapturer] getSources failed:', err);
+      return [];
+    }
+  });
+
+  ipcMain.handle('app:launch', async (_event, bundleId: string) => {
+    // Launch a new instance of a macOS app by bundle id. The `-n` flag
+    // forces a new instance even if one is already running; `-b` looks
+    // up the bundle id via Launch Services. We then poll the process
+    // list to find the child pid — `open` itself is a short-lived
+    // launcher process and returns immediately.
+    if (!bundleId || typeof bundleId !== 'string') {
+      return { ok: false, error: 'bundleId required' };
+    }
+
+    // Resolve the bundle id to an .app path so we can pgrep for it.
+    // We do this BEFORE the launch so the BEFORE snapshot in
+    // waitForAppPid can include any pre-existing instances.
+    let appName = bundleId;
+    let appPath = '';
+    try {
+      const mdfindOut = await new Promise<string>((resolve, reject) => {
+        execFile('mdfind', [`kMDItemCFBundleIdentifier == '${bundleId}'`], (err, stdout) => {
+          if (err) return reject(err);
+          resolve(stdout.trim().split('\n')[0] || '');
+        });
+      });
+      if (mdfindOut) {
+        appPath = mdfindOut;
+        appName = path.basename(mdfindOut, '.app');
+      }
+    } catch {
+      // mdfind may fail in sandboxed environments; we still proceed
+      // with the bundle id as the name.
+    }
+    if (!appPath) {
+      return { ok: false, error: `Could not resolve bundle id to an app: ${bundleId}` };
+    }
+
+    // Snapshot existing pids BEFORE launching. Anything in the
+    // post-launch poll that isn't in this set is our new instance.
+    const pgrepPids = () =>
+      new Promise<number[]>((resolve) => {
+        execFile('pgrep', ['-f', appPath], (_err, stdout) => {
+          resolve(
+            stdout.split('\n').map((s) => parseInt(s, 10)).filter((n) => Number.isFinite(n))
+          );
+        });
+      });
+    const before = new Set(await pgrepPids());
+
+    // Launch.
+    try {
+      const child = spawn('open', ['-nb', bundleId], {
+        detached: true,
+        stdio: 'ignore',
+      });
+      child.unref();
+    } catch (err) {
+      return { ok: false, error: `Failed to launch: ${(err as Error).message}` };
+    }
+
+    // Poll for a new pid.
+    const start = Date.now();
+    while (Date.now() - start < 5000) {
+      await new Promise((r) => setTimeout(r, 200));
+      const current = await pgrepPids();
+      for (const p of current) {
+        if (!before.has(p)) {
+          launchedApps.set(p, { bundleId, appName, spawnedAt: Date.now() });
+          return { ok: true, pid: p, appName, appPath };
+        }
+      }
+    }
+    return {
+      ok: false,
+      error: `Launched ${appName} but no new process appeared within 5s. The app may be a singleton.`,
+    };
+  });
+
+  ipcMain.handle('app:kill', async (_event, pid: number) => {
+    if (typeof pid !== 'number' || !Number.isFinite(pid)) {
+      return { ok: false, error: 'pid required' };
+    }
+    const tracked = launchedApps.get(pid);
+    if (!tracked) {
+      return { ok: false, error: `Not a tracked launch: ${pid}` };
+    }
+    try {
+      // SIGTERM the process group. The app was launched detached so it
+      // has its own process group; killing the group ensures we take
+      // down helper processes too.
+      try {
+        process.kill(-pid, 'SIGTERM');
+      } catch {
+        // Fall back to plain kill if the group doesn't exist
+        try {
+          process.kill(pid, 'SIGTERM');
+        } catch {
+          // ignore — process may already be gone
+        }
+      }
+      // Give it a moment, then SIGKILL stragglers
+      setTimeout(() => {
+        try {
+          process.kill(-pid, 'SIGKILL');
+        } catch {
+          try {
+            process.kill(pid, 'SIGKILL');
+          } catch {
+            // already gone
+          }
+        }
+      }, 800);
+      launchedApps.delete(pid);
+      return { ok: true };
+    } catch (err) {
+      return { ok: false, error: (err as Error).message };
+    }
+  });
+
+  ipcMain.handle(
+    'desktop:capture',
+    async (_event, sourceId: string) => {
+      // Return a media source handle that the renderer can stream from
+      // via getUserMedia. We use the older "chromeMediaSourceId" pattern
+      // because Electron's getDisplayMedia is opt-in per session.
+      return { sourceId };
+    }
+  );
+}
+
+function applyWindowBackground(mode: 'black' | 'white' | 'system' | 'translucent'): void {
+  if (!mainWindow) return;
+  if (process.platform === 'darwin' && mode === 'translucent') {
+    // Under-window vibrancy on macOS — the desktop / window behind shows
+    // through with a subtle blur. The canvas renders transparent over it.
+    mainWindow.setBackgroundColor('#00000000');
+    mainWindow.setVibrancy('under-window');
+  } else if (mode === 'white') {
+    mainWindow.setVibrancy(null);
+    mainWindow.setBackgroundColor('#ffffff');
+  } else if (mode === 'system') {
+    // 'system' tracks the OS appearance in the renderer via
+    // prefers-color-scheme, so the window itself stays a neutral grey
+    // and the canvas swaps between dark/light accordingly.
+    mainWindow.setVibrancy(null);
+    mainWindow.setBackgroundColor('#1a1a1a');
+  } else {
+    mainWindow.setVibrancy(null);
+    mainWindow.setBackgroundColor('#0f0f0f');
+  }
 }
 
 function createWindow(): void {
@@ -279,6 +517,35 @@ function createWindow(): void {
       nodeIntegration: false,
       sandbox: false,
     },
+  });
+
+  // Allow the renderer to use navigator.mediaDevices.getDisplayMedia.
+  // Without this Electron throws "Not supported". When the renderer
+  // calls getDisplayMedia, we forward to desktopCapturer and grab the
+  // first window source; the App Mirror panel also has a quick-pick UI
+  // for choosing a specific window.
+  session.defaultSession.setDisplayMediaRequestHandler(async (request, callback) => {
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ['window', 'screen'],
+        thumbnailSize: { width: 320, height: 180 },
+        fetchWindowIcons: true,
+      });
+      // Exclude our own window and the Electron helper processes.
+      const ownPid = process.pid;
+      const candidates = sources.filter(
+        (s) => !(s as any).pid || (s as any).pid !== ownPid
+      );
+      const first = candidates[0];
+      if (!first) {
+        callback({});
+        return;
+      }
+      callback({ video: { id: first.id } as any });
+    } catch (err) {
+      console.error('[displayMedia] handler failed:', err);
+      callback({});
+    }
   });
 
   if (isDev) {
@@ -328,6 +595,19 @@ app.on('before-quit', () => {
   if (extensionHost) {
     extensionHost.stop();
   }
+  // Kill any apps we launched so we don't leave orphan instances.
+  for (const pid of launchedApps.keys()) {
+    try {
+      process.kill(-pid, 'SIGTERM');
+    } catch {
+      try {
+        process.kill(pid, 'SIGTERM');
+      } catch {
+        // already gone
+      }
+    }
+  }
+  launchedApps.clear();
 });
 
 app.on('window-all-closed', () => {

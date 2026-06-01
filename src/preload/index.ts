@@ -15,6 +15,23 @@ interface FileStat {
   modified: number;
 }
 
+interface DesktopSource {
+  id: string;
+  name: string;
+  appIcon: string | null;
+  thumbnail: string | null;
+  display_id?: string;
+  pid?: number | null;
+}
+
+interface LaunchAppResult {
+  ok: boolean;
+  error?: string;
+  pid?: number;
+  appName?: string;
+  appPath?: string;
+}
+
 const api = {
   loadCanvas: (): Promise<CanvasState> => ipcRenderer.invoke('canvas:load'),
   saveCanvas: (state: CanvasState): Promise<void> => ipcRenderer.invoke('canvas:save', state),
@@ -58,6 +75,11 @@ const api = {
     ipcRenderer.on('task:completed', listener);
     return () => ipcRenderer.off('task:completed', listener);
   },
+  setWindowBackground: (mode: 'black' | 'white' | 'system' | 'translucent'): Promise<void> =>
+    ipcRenderer.invoke('window:background', mode),
+  listDesktopSources: (): Promise<DesktopSource[]> => ipcRenderer.invoke('desktop:sources'),
+  launchApp: (bundleId: string): Promise<LaunchAppResult> => ipcRenderer.invoke('app:launch', bundleId),
+  killApp: (pid: number): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('app:kill', pid),
   on: (channel: string, listener: (event: IpcRendererEvent, ...args: any[]) => void) => {
     ipcRenderer.on(channel, listener);
   },
@@ -69,4 +91,4 @@ const api = {
 contextBridge.exposeInMainWorld('canvasAPI', api);
 
 export type CanvasAPI = typeof api;
-export type { FileEntry, FileStat };
+export type { FileEntry, FileStat, DesktopSource, LaunchAppResult };

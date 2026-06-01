@@ -8,6 +8,7 @@ import { WebviewPanel } from './panels/Webview';
 import { MarkdownPreviewPanel } from './panels/Markdown';
 import { ExtensionPanel } from './panels/Extension';
 import { EmbeddedPanel } from './panels/Embedded';
+import { Tooltip } from './Tooltip';
 
 interface PanelViewProps {
   panel: PanelType;
@@ -109,7 +110,7 @@ export const PanelView: React.FC<PanelViewProps> = ({
           className="panel-state-toggle"
           onClick={toggleState}
           onMouseDown={(e) => e.stopPropagation()}
-          title={stateTitle}
+          aria-label={stateTitle}
           style={{
             background: 'transparent',
             border: 'none',
@@ -119,16 +120,18 @@ export const PanelView: React.FC<PanelViewProps> = ({
             alignItems: 'center',
           }}
         >
-          <div
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: '50%',
-              backgroundColor: stateColor,
-              boxShadow: panel.state === 'running' ? `0 0 6px ${stateColor}` : 'none',
-              flexShrink: 0,
-            }}
-          />
+          <Tooltip label={stateTitle} side="bottom">
+            <div
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: '50%',
+                backgroundColor: stateColor,
+                boxShadow: panel.state === 'running' ? `0 0 6px ${stateColor}` : 'none',
+                flexShrink: 0,
+              }}
+            />
+          </Tooltip>
         </button>
         <div
           style={{
@@ -143,25 +146,28 @@ export const PanelView: React.FC<PanelViewProps> = ({
         >
           {panel.title}
         </div>
-        <button
-          className="panel-close"
-          onClick={handleClose}
-          onMouseDown={(e) => e.stopPropagation()}
-          style={{
-            background: 'transparent',
-            border: 'none',
-            color: '#888',
-            fontSize: 16,
-            cursor: 'pointer',
-            padding: '0 6px',
-            lineHeight: 1,
-            borderRadius: 3,
-          }}
-          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#3a3a3a')}
-          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
-        >
-          ×
-        </button>
+        <Tooltip label="Close panel" side="bottom">
+          <button
+            className="panel-close"
+            onClick={handleClose}
+            onMouseDown={(e) => e.stopPropagation()}
+            aria-label="Close panel"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#888',
+              fontSize: 16,
+              cursor: 'pointer',
+              padding: '0 6px',
+              lineHeight: 1,
+              borderRadius: 3,
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#3a3a3a')}
+            onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+          >
+            ×
+          </button>
+        </Tooltip>
       </div>
 
       <div

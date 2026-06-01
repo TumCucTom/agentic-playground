@@ -4,6 +4,7 @@
 
 import { BrowserWindow, ipcMain, IpcMainInvokeEvent } from 'electron';
 import * as os from 'os';
+import * as path from 'path';
 import { taskMonitor } from './taskMonitor.js';
 
 interface PtyProcess {
@@ -33,7 +34,10 @@ class PtyManager {
       );
     }
     const shell = opts.shell || (process.env.SHELL as string) || '/bin/zsh';
-    const cwd = opts.cwd || os.homedir();
+    let cwd = opts.cwd || os.homedir();
+    if (cwd === '~' || cwd.startsWith('~/')) {
+      cwd = path.join(os.homedir(), cwd.slice(1));
+    }
     const cols = opts.cols ?? 80;
     const rows = opts.rows ?? 24;
     const p = ptyMod.spawn(shell, [], {
