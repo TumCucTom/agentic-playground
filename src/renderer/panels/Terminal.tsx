@@ -13,73 +13,104 @@ export const TerminalPanel: React.FC<Props> = ({ panel }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<XTerm | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
+  const ptyIdRef = useRef<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
   const setPanelState = useCanvasStore((s) => s.setPanelState);
+
+  const ref = panel.content.type === 'terminal' ? panel.content.ref : null;
+  const ptyId = ptyIdRef.current; // Used by cleanup
+  void ptyId;
 
   useEffect(() => {
     if (!containerRef.current) return;
-
-    let term: XTerm;
-    let fit: FitAddon;
-    try {
-      term = new XTerm({
-        fontFamily: '"SF Mono", Menlo, Consolas, monospace',
-        fontSize: 12,
-        theme: {
-          background: '#1e1e1e',
-          foreground: '#d0d0d0',
-          cursor: '#5a9fd4',
-        },
-        cursorBlink: true,
-        convertEol: true,
-      });
-      fit = new FitAddon();
-      term.loadAddon(fit);
-      term.open(containerRef.current);
-      fit.fit();
-      termRef.current = term;
-      fitRef.current = fit;
-    } catch (err) {
-      setError(`Failed to initialize terminal: ${(err as Error).message}`);
-      return;
-    }
-
-    // We don't have node-pty available in the renderer directly, so render a
-    // basic read-only terminal that echoes input. The real PTY integration
-    // is wired through the main process IPC in a follow-up task.
-    term.writeln('\x1b[36mCanvas Workspace Terminal\x1b[0m');
-    term.writeln('PTY integration is wired through main process (see Task: Built-in panels).');
-    term.writeln('Use Ctrl+L to clear, type to echo.\r\n');
-    setPanelState(panel.id, 'idle');
-
-    let buffer = '';
-    term.onData((data) => {
-      if (data === '\x7f') {
-        if (buffer.length > 0) {
-          buffer = buffer.slice(0, -1);
-          term.write('\b \b');
-        }
-        return;
-      }
-      if (data === '\r') {
-        term.writeln('');
-        term.writeln(`echo: ${buffer}`);
-        buffer = '';
-        return;
-      }
-      if (data === '\x0c') {
-        term.clear();
-        return;
-      }
-      buffer += data;
-      term.write(data);
+    const term = new XTerm({
+      fontFamily: '"SF Mono", Menlo, Consolas, monospace',
+      fontSize: 12,
+      theme: {
+        background: '#1e1e1e',
+        foreground: '#d0d0d0',
+        cursor: '#5a9fd4',
+      },
+      cursorBlink: true,
+      convertEol: true,
     });
+    const fit = new FitAddon();
+    term.loadAddon(fit);
+    term.open(containerRef.current);
+    try {
+      fit.fit();
+    } catch {
+      // ignore
+    }
+    termRef.current = term;
+    fitRef.current = fit;
+
+    let cancelled = false;
+    let unsubscribeData: (() => void) | null = null;
+    let unsubscribeExit: (() => void) | null = null;
+    const ptyIdLocal = `pty_panel_${panel.id}`;
+    ptyIdRef.current = ptyIdLocal;
+
+    (async () => {
+      try {
+        const result = await window.canvasAPI.ptyCreate({
+          shell: ref?.shell,
+          cwd: ref?.cwd,
+          cols: ref?.cols ?? 80,
+          rows: ref?.rows ?? 24,
+          panelId: panel.id,
+        });
+        if (cancelled) {
+          // The component unmounted before the PTY was created
+          await window.canvasAPI.ptyKill(result.id);
+          return;
+        }
+        ptyIdRef.current = result.id;
+        setRunning(true);
+        setPanelState(panel.id, 'running');
+
+        // Send initial resize based on actual terminal size
+        try {
+          const dims = fit.proposeDimensions();
+          if (dims) {
+            await window.canvasAPI.ptyResize(result.id, dims.cols, dims.rows);
+          }
+        } catch {
+          // ignore
+        }
+
+        unsubscribeData = window.canvasAPI.onPtyData((id, data) => {
+          if (id === result.id) term.write(data);
+        });
+        unsubscribeExit = window.canvasAPI.onPtyExit((id, code) => {
+          if (id === result.id) {
+            term.writeln(`\r\n\x1b[90m[Process exited with code ${code}]\x1b[0m`);
+            setRunning(false);
+            setPanelState(panel.id, 'idle');
+          }
+        });
+
+        term.onData((data) => {
+          void window.canvasAPI.ptyWrite(result.id, data);
+        });
+      } catch (err) {
+        if (!cancelled) {
+          setError(`PTY unavailable: ${(err as Error).message}`);
+          term.writeln(`\x1b[31mPTY unavailable: ${(err as Error).message}\x1b[0m`);
+        }
+      }
+    })();
 
     const handleResize = () => {
       try {
         fit.fit();
+        const dims = fit.proposeDimensions();
+        if (dims && ptyIdRef.current) {
+          void window.canvasAPI.ptyResize(ptyIdRef.current, dims.cols, dims.rows);
+        }
       } catch {
-        // ignore fit errors
+        // ignore
       }
     };
     window.addEventListener('resize', handleResize);
@@ -87,13 +118,19 @@ export const TerminalPanel: React.FC<Props> = ({ panel }) => {
     resizeObserver.observe(containerRef.current);
 
     return () => {
+      cancelled = true;
       window.removeEventListener('resize', handleResize);
       resizeObserver.disconnect();
+      if (unsubscribeData) unsubscribeData();
+      if (unsubscribeExit) unsubscribeExit();
+      if (ptyIdRef.current) {
+        void window.canvasAPI.ptyKill(ptyIdRef.current);
+      }
       term.dispose();
       termRef.current = null;
       fitRef.current = null;
     };
-  }, [panel.id, setPanelState]);
+  }, [panel.id, setPanelState, ref?.shell, ref?.cwd, ref?.cols, ref?.rows]);
 
   if (error) {
     return (
@@ -103,5 +140,26 @@ export const TerminalPanel: React.FC<Props> = ({ panel }) => {
     );
   }
 
-  return <div ref={containerRef} style={{ width: '100%', height: '100%', background: '#1e1e1e' }} />;
+  return (
+    <div style={{ position: 'relative', width: '100%', height: '100%' }}>
+      <div ref={containerRef} style={{ width: '100%', height: '100%', background: '#1e1e1e' }} />
+      {running && (
+        <div
+          style={{
+            position: 'absolute',
+            top: 4,
+            right: 8,
+            padding: '2px 6px',
+            background: 'rgba(255, 165, 0, 0.2)',
+            color: '#ffa500',
+            fontSize: 10,
+            borderRadius: 3,
+            pointerEvents: 'none',
+          }}
+        >
+          ● live
+        </div>
+      )}
+    </div>
+  );
 };

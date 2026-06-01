@@ -46,7 +46,7 @@ const FACTORIES: Record<
     },
   }),
   embedded: (x, y) => ({
-    title: 'Embed',
+    title: 'App Mirror',
     content: { type: 'embedded', ref: { appBundleId: '' } },
   }),
 };

@@ -3,6 +3,8 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { CanvasState, ExtensionManifest } from '../shared/types.js';
 import { ExtensionHostManager } from './extensionHostManager.js';
+import { registerPtyHandlers, ptyManager } from './ptyManager.js';
+import { taskMonitor, setTaskMonitorWindow } from './taskMonitor.js';
 
 const isDev = !app.isPackaged;
 const userDataPath = app.getPath('userData');
@@ -134,6 +136,39 @@ function loadExtensions(): ExtensionManifest[] {
   return manifests;
 }
 
+async function readDirectoryTree(rootPath: string, maxDepth = 4, currentDepth = 0): Promise<any[]> {
+  if (currentDepth >= maxDepth) return [];
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(rootPath, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  // Skip heavy / hidden directories
+  const SKIP = new Set(['node_modules', '.git', '.next', 'dist', 'build', '.cache', '__pycache__']);
+  const result: any[] = [];
+  for (const entry of entries) {
+    if (entry.name.startsWith('.') && entry.name !== '.vscode') continue;
+    if (SKIP.has(entry.name)) continue;
+    const full = path.join(rootPath, entry.name);
+    const item: any = {
+      name: entry.name,
+      isDir: entry.isDirectory(),
+      path: full,
+    };
+    if (entry.isDirectory()) {
+      item.children = await readDirectoryTree(full, maxDepth, currentDepth + 1);
+    }
+    result.push(item);
+  }
+  // Sort: dirs first, then alphabetical
+  result.sort((a, b) => {
+    if (a.isDir !== b.isDir) return a.isDir ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+  return result;
+}
+
 function registerIpcHandlers(): void {
   ipcMain.handle('canvas:load', async () => {
     return loadCanvasState(getActiveWorkspaceName());
@@ -183,6 +218,44 @@ function registerIpcHandlers(): void {
       await extensionHost.sendWebviewMessage(extensionId, viewId, message);
     }
   );
+
+  ipcMain.handle('fs:listDir', async (_event: IpcMainInvokeEvent, dirPath: string) => {
+    return readDirectoryTree(dirPath);
+  });
+
+  ipcMain.handle('fs:readFile', async (_event: IpcMainInvokeEvent, filePath: string) => {
+    try {
+      return await fs.promises.readFile(filePath, 'utf-8');
+    } catch (err) {
+      throw new Error(`Failed to read ${filePath}: ${(err as Error).message}`);
+    }
+  });
+
+  ipcMain.handle('fs:writeFile', async (_event: IpcMainInvokeEvent, filePath: string, content: string) => {
+    try {
+      await fs.promises.writeFile(filePath, content, 'utf-8');
+    } catch (err) {
+      throw new Error(`Failed to write ${filePath}: ${(err as Error).message}`);
+    }
+  });
+
+  ipcMain.handle('fs:stat', async (_event: IpcMainInvokeEvent, filePath: string) => {
+    try {
+      const s = await fs.promises.stat(filePath);
+      return {
+        isFile: s.isFile(),
+        isDirectory: s.isDirectory(),
+        size: s.size,
+        modified: s.mtimeMs,
+      };
+    } catch (err) {
+      throw new Error(`Failed to stat ${filePath}: ${(err as Error).message}`);
+    }
+  });
+
+  ipcMain.handle('fs:homeDir', async () => {
+    return app.getPath('home');
+  });
 }
 
 function createWindow(): void {
@@ -213,6 +286,8 @@ function createWindow(): void {
     console.log(`[renderer ${levelLabel}] ${message} (${source}:${line})`);
   });
 
+  setTaskMonitorWindow(mainWindow);
+
   mainWindow.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
     console.error(`[renderer] Failed to load ${validatedURL}: ${errorDescription} (${errorCode})`);
   });
@@ -232,6 +307,7 @@ app.whenReady().then(() => {
   extensionHost = new ExtensionHostManager(extensionsDir);
   extensionHost.start();
   registerIpcHandlers();
+  registerPtyHandlers(() => mainWindow);
   createWindow();
 
   app.on('activate', () => {

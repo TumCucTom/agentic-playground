@@ -7,6 +7,7 @@ import { FileExplorerPanel } from './panels/FileExplorer';
 import { WebviewPanel } from './panels/Webview';
 import { MarkdownPreviewPanel } from './panels/Markdown';
 import { ExtensionPanel } from './panels/Extension';
+import { EmbeddedPanel } from './panels/Embedded';
 
 interface PanelViewProps {
   panel: PanelType;
@@ -200,11 +201,7 @@ const PanelContent: React.FC<{ panel: PanelType }> = ({ panel }) => {
     case 'extension':
       return <ExtensionPanel panel={panel} />;
     case 'embedded':
-      return (
-        <div style={{ padding: 16, color: '#888', fontSize: 12 }}>
-          Embedded app (Phase 2)
-        </div>
-      );
+      return <EmbeddedPanel panel={panel} />;
     default:
       return <div style={{ padding: 16, color: '#888' }}>Unknown panel type</div>;
   }

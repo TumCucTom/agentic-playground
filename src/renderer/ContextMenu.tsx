@@ -14,6 +14,7 @@ const MENU_ITEMS: { type: PanelType; label: string; icon: string }[] = [
   { type: 'fileExplorer', label: 'File Explorer', icon: '📁' },
   { type: 'webview', label: 'Webview', icon: '🌐' },
   { type: 'markdownPreview', label: 'Markdown', icon: '¶' },
+  { type: 'embedded', label: 'App Mirror', icon: '🪞' },
 ];
 
 export const ContextMenu: React.FC<Props> = ({ x, y, onAdd, onClose }) => {

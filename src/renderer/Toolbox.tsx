@@ -10,6 +10,7 @@ const ITEMS: { type: PanelType; label: string; icon: string }[] = [
   { type: 'fileExplorer', label: 'Files', icon: '📁' },
   { type: 'webview', label: 'Web', icon: '🌐' },
   { type: 'markdownPreview', label: 'MD', icon: '¶' },
+  { type: 'embedded', label: 'App Mirror', icon: '🪞' },
 ];
 
 export const Toolbox: React.FC = () => {

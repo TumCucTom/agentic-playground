@@ -1,6 +1,20 @@
 import { contextBridge, ipcRenderer, IpcRendererEvent } from 'electron';
 import { CanvasState, ExtensionManifest } from '../shared/types.js';
 
+interface FileEntry {
+  name: string;
+  isDir: boolean;
+  path: string;
+  children?: FileEntry[];
+}
+
+interface FileStat {
+  isFile: boolean;
+  isDirectory: boolean;
+  size: number;
+  modified: number;
+}
+
 const api = {
   loadCanvas: (): Promise<CanvasState> => ipcRenderer.invoke('canvas:load'),
   saveCanvas: (state: CanvasState): Promise<void> => ipcRenderer.invoke('canvas:save', state),
@@ -15,6 +29,35 @@ const api = {
     ipcRenderer.invoke('extension:webview:html', extensionId, viewId),
   sendExtensionMessage: (extensionId: string, viewId: string, message: unknown): Promise<void> =>
     ipcRenderer.invoke('extension:webview:message', extensionId, viewId, message),
+  listDirectory: (dirPath: string): Promise<FileEntry[]> => ipcRenderer.invoke('fs:listDir', dirPath),
+  readFile: (filePath: string): Promise<string> => ipcRenderer.invoke('fs:readFile', filePath),
+  writeFile: (filePath: string, content: string): Promise<void> =>
+    ipcRenderer.invoke('fs:writeFile', filePath, content),
+  stat: (filePath: string): Promise<FileStat> => ipcRenderer.invoke('fs:stat', filePath),
+  homeDir: (): Promise<string> => ipcRenderer.invoke('fs:homeDir'),
+  ptyCreate: (opts: { shell?: string; cwd?: string; cols?: number; rows?: number }): Promise<{ id: string; pid: number }> =>
+    ipcRenderer.invoke('pty:create', opts),
+  ptyWrite: (id: string, data: string): Promise<void> => ipcRenderer.invoke('pty:write', id, data),
+  ptyResize: (id: string, cols: number, rows: number): Promise<void> => ipcRenderer.invoke('pty:resize', id, cols, rows),
+  ptyKill: (id: string): Promise<void> => ipcRenderer.invoke('pty:kill', id),
+  onPtyData: (handler: (id: string, data: string) => void) => {
+    const listener = (_e: IpcRendererEvent, payload: { id: string; data: string }) =>
+      handler(payload.id, payload.data);
+    ipcRenderer.on('pty:data', listener);
+    return () => ipcRenderer.off('pty:data', listener);
+  },
+  onPtyExit: (handler: (id: string, code: number) => void) => {
+    const listener = (_e: IpcRendererEvent, payload: { id: string; code: number }) =>
+      handler(payload.id, payload.code);
+    ipcRenderer.on('pty:exit', listener);
+    return () => ipcRenderer.off('pty:exit', listener);
+  },
+  onTaskCompleted: (handler: (payload: { panelId: string; ptyId: string; kind: 'done' | 'failed' }) => void) => {
+    const listener = (_e: IpcRendererEvent, payload: { panelId: string; ptyId: string; kind: 'done' | 'failed' }) =>
+      handler(payload);
+    ipcRenderer.on('task:completed', listener);
+    return () => ipcRenderer.off('task:completed', listener);
+  },
   on: (channel: string, listener: (event: IpcRendererEvent, ...args: any[]) => void) => {
     ipcRenderer.on(channel, listener);
   },
@@ -26,3 +69,4 @@ const api = {
 contextBridge.exposeInMainWorld('canvasAPI', api);
 
 export type CanvasAPI = typeof api;
+export type { FileEntry, FileStat };

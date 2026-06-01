@@ -89,6 +89,16 @@ export const Canvas: React.FC = () => {
         zoomViewport(1.2);
       } else if (e.key === '-' && (e.metaKey || e.ctrlKey)) {
         zoomViewport(1 / 1.2);
+      } else if (e.key === 'z' && (e.metaKey || e.ctrlKey) && !e.shiftKey) {
+        e.preventDefault();
+        useCanvasStore.getState().undo();
+      } else if (
+        ((e.key === 'z' && (e.metaKey || e.ctrlKey) && e.shiftKey) ||
+          (e.key === 'Z' && (e.metaKey || e.ctrlKey))) ||
+        (e.key === 'y' && (e.metaKey || e.ctrlKey))
+      ) {
+        e.preventDefault();
+        useCanvasStore.getState().redo();
       }
     };
     window.addEventListener('keydown', handleKey);

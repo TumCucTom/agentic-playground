@@ -68,12 +68,99 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handler);
   }, [saveCanvas, serialize, markClean]);
 
+  // Auto-focus on task completion (smart orchestration)
+  useEffect(() => {
+    const unsubscribe = window.canvasAPI.onTaskCompleted((payload) => {
+      const state = useCanvasStore.getState();
+      // Mark the panel as idle
+      state.setPanelState(payload.panelId, 'idle');
+      // Find the panel and bring it into view + focus
+      const panel = state.panels.find((p) => p.id === payload.panelId);
+      if (!panel) return;
+      // Don't auto-focus if the user is already focused on it
+      if (state.selectedPanelIds.includes(payload.panelId)) return;
+      state.focusPanel(payload.panelId);
+      // Pan the canvas so the panel is visible
+      const viewport = state.viewport;
+      const padding = 100;
+      const targetX = panel.position.x + panel.size.width / 2;
+      const targetY = panel.position.y + panel.size.height / 2;
+      const viewportWorldW = window.innerWidth / viewport.zoom;
+      const viewportWorldH = window.innerHeight / viewport.zoom;
+      const visibleX = viewport.x - padding / viewport.zoom;
+      const visibleY = viewport.y - padding / viewport.zoom;
+      const visibleW = viewportWorldW + (padding * 2) / viewport.zoom;
+      const visibleH = viewportWorldH + (padding * 2) / viewport.zoom;
+      if (
+        targetX < visibleX ||
+        targetX > visibleX + visibleW ||
+        targetY < visibleY ||
+        targetY > visibleY + visibleH
+      ) {
+        state.setViewport({
+          x: targetX - viewportWorldW / 2,
+          y: targetY - viewportWorldH / 2,
+        });
+      }
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
   return (
     <>
       <TitleBar />
       <Toolbox />
       <Canvas />
+      <LayoutToolbar />
     </>
+  );
+};
+
+const LayoutToolbar: React.FC = () => {
+  const panels = useCanvasStore((s) => s.panels);
+  const selectedPanelIds = useCanvasStore((s) => s.selectedPanelIds);
+  const applyOneBigNSmall = useCanvasStore((s) => s.applyOneBigNSmall);
+
+  const terminals = panels.filter((p) => p.type === 'terminal');
+  const selected = selectedPanelIds.length > 0
+    ? panels.filter((p) => selectedPanelIds.includes(p.id))
+    : terminals;
+
+  if (selected.length < 2) return null;
+
+  return (
+    <div
+      style={{
+        position: 'fixed',
+        top: 36,
+        left: 70,
+        display: 'flex',
+        gap: 6,
+        zIndex: 1500,
+        pointerEvents: 'auto',
+      }}
+    >
+      <button
+        onClick={() => applyOneBigNSmall(selected.map((p) => p.id))}
+        style={{
+          padding: '6px 10px',
+          background: '#2a2a2a',
+          color: '#d0d0d0',
+          border: '1px solid #3a3a3a',
+          borderRadius: 4,
+          fontSize: 11,
+          cursor: 'pointer',
+          fontFamily: 'inherit',
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = '#3a3a3a')}
+        onMouseLeave={(e) => (e.currentTarget.style.background = '#2a2a2a')}
+        title="Layout: 1 Big + N Small"
+      >
+        1 Big + N Small
+      </button>
+    </div>
   );
 };
 
