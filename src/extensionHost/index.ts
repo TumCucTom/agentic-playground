@@ -24,7 +24,7 @@ const registry = new ExtensionRegistry(sendEvent);
 // Get the extensions dir and current workspace from env (set by main process).
 const extensionsDir = process.env.CANVAS_EXTENSIONS_DIR;
 if (!extensionsDir) {
-  sendResponse({ kind: 'error', message: 'CANVAS_EXTENSIONS_DIR not set' });
+  sendResponse({ id: 0, kind: 'error', message: 'CANVAS_EXTENSIONS_DIR not set' });
   process.exit(1);
 }
 
@@ -129,7 +129,7 @@ rl.on('line', async (line) => {
   try {
     request = JSON.parse(line) as HostRequest;
   } catch (err) {
-    sendResponse({ kind: 'error', message: `Invalid JSON: ${(err as Error).message}` });
+    sendResponse({ id: -1, kind: 'error', message: `Invalid JSON: ${(err as Error).message}` });
     return;
   }
 
@@ -137,31 +137,31 @@ rl.on('line', async (line) => {
     switch (request.kind) {
       case 'listExtensions': {
         const manifests = loadManifests();
-        sendResponse({ kind: 'listExtensions', manifests });
+        sendResponse({ id: request.id, kind: 'listExtensions', manifests });
         break;
       }
       case 'activate': {
         const result = await activateExtension(request.extensionId);
-        sendResponse({ kind: 'activate', ...result });
+        sendResponse({ id: request.id, kind: 'activate', ...result });
         break;
       }
       case 'getWebviewHtml': {
         const html = await getWebviewHtml(request.extensionId, request.viewId);
-        sendResponse({ kind: 'getWebviewHtml', html });
+        sendResponse({ id: request.id, kind: 'getWebviewHtml', html });
         break;
       }
       case 'webviewMessage': {
         await registry.handleWebviewMessage(request.extensionId, request.viewId, request.message);
-        sendResponse({ kind: 'webviewMessage', ok: true });
+        sendResponse({ id: request.id, kind: 'webviewMessage', ok: true });
         break;
       }
       case 'shutdown': {
-        sendResponse({ kind: 'shutdown' });
+        sendResponse({ id: request.id, kind: 'shutdown' });
         process.exit(0);
       }
     }
   } catch (err) {
-    sendResponse({ kind: 'error', message: (err as Error).message });
+    sendResponse({ id: request.id, kind: 'error', message: (err as Error).message });
   }
 });
 

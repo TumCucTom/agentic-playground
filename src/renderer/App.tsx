@@ -68,7 +68,7 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handler);
   }, [saveCanvas, serialize, markClean]);
 
-  // Auto-focus on task completion (smart orchestration)
+  // Auto-focus + auto-promote on task completion (smart orchestration)
   useEffect(() => {
     const unsubscribe = window.canvasAPI.onTaskCompleted((payload) => {
       const state = useCanvasStore.getState();
@@ -78,9 +78,20 @@ export const App: React.FC = () => {
       const panel = state.panels.find((p) => p.id === payload.panelId);
       if (!panel) return;
       // Don't auto-focus if the user is already focused on it
-      if (state.selectedPanelIds.includes(payload.panelId)) return;
+      const userAlreadyFocused = state.selectedPanelIds.includes(payload.panelId);
       state.focusPanel(payload.panelId);
-      // Pan the canvas so the panel is visible
+
+      // Auto-promote: if there are other Running panels, apply
+      // 1 Big + N Small with the just-completed one as the big.
+      const otherRunning = state.panels.filter(
+        (p) => p.state === 'running' && p.id !== payload.panelId
+      );
+      if (otherRunning.length > 0) {
+        state.applyOneBigNSmall([payload.panelId, ...otherRunning.map((p) => p.id)]);
+      }
+
+      // Pan the canvas so the panel is visible (unless user was already focused)
+      if (userAlreadyFocused) return;
       const viewport = state.viewport;
       const padding = 100;
       const targetX = panel.position.x + panel.size.width / 2;

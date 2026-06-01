@@ -7,6 +7,13 @@ import * as readline from 'readline';
 import { HostRequest, HostResponse, HostEvent } from '../extensionHost/protocol';
 import { ExtensionManifest } from '../shared/types';
 
+type RequestBody =
+  | { kind: 'listExtensions' }
+  | { kind: 'activate'; extensionId: string }
+  | { kind: 'getWebviewHtml'; extensionId: string; viewId: string }
+  | { kind: 'webviewMessage'; extensionId: string; viewId: string; message: unknown }
+  | { kind: 'shutdown' };
+
 export class ExtensionHostManager {
   private process: ChildProcess | null = null;
   private pendingRequests = new Map<
@@ -74,11 +81,15 @@ export class ExtensionHostManager {
   }
 
   private handleResponse(response: HostResponse): void {
+    const pending = this.pendingRequests.get(response.id);
+    if (pending) {
+      this.pendingRequests.delete(response.id);
+      pending.resolve(response);
+      return;
+    }
     if (response.kind === 'listExtensions') {
       this.manifests = response.manifests;
     }
-    // Responses are not awaited in this simple implementation; we use
-    // request/response for all operations. For now, just log them.
   }
 
   private handleEvent(event: HostEvent): void {
@@ -92,7 +103,7 @@ export class ExtensionHostManager {
     }
   }
 
-  private sendRequest(request: HostRequest): Promise<HostResponse> {
+  private sendRequest(request: RequestBody): Promise<HostResponse> {
     return new Promise((resolve, reject) => {
       if (!this.process) {
         reject(new Error('Extension host not running'));
@@ -101,16 +112,17 @@ export class ExtensionHostManager {
       const id = this.nextRequestId++;
       this.pendingRequests.set(id, { resolve, reject });
       try {
-        this.process.stdin!.write(JSON.stringify(request) + '\n');
+        this.process.stdin!.write(JSON.stringify({ ...request, id }) + '\n');
       } catch (err) {
-        reject(err as Error);
-      }
-      // For now, the response handling is simplified; resolve on next tick
-      // to keep the interface compatible. Future improvement: add id to
-      // request envelope and route responses.
-      setTimeout(() => {
         this.pendingRequests.delete(id);
-        resolve({ kind: 'error', message: 'Response timeout' });
+        reject(err as Error);
+        return;
+      }
+      setTimeout(() => {
+        if (this.pendingRequests.has(id)) {
+          this.pendingRequests.delete(id);
+          resolve({ id, kind: 'error', message: 'Response timeout' });
+        }
       }, 5000);
     });
   }

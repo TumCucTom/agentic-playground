@@ -1,0 +1,20 @@
+{
+  "id": "canvas-tasks",
+  "name": "Canvas Tasks",
+  "version": "0.1.0",
+  "publisher": "canvas-workspace",
+  "main": "index.js",
+  "contributes": {
+    "webviews": [
+      {
+        "id": "tasks",
+        "title": "Tasks",
+        "icon": "✅"
+      }
+    ],
+    "commands": [
+      { "command": "canvas-tasks.add", "title": "Add task" },
+      { "command": "canvas-tasks.clear", "title": "Clear completed" }
+    ]
+  }
+}

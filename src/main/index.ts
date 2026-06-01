@@ -30,10 +30,17 @@ function installBundledExtensions(): void {
   const candidates: string[] = [];
   if (isDev) {
     candidates.push(path.join(app.getAppPath(), 'bundled-extensions'));
+    // Fallback: walk up from __dirname to find bundled-extensions.
+    // This handles the case where Playwright launches Electron with
+    // dist/main/index.js as the entry, and app.getAppPath() is the
+    // dist directory rather than the project root.
+    candidates.push(path.join(__dirname, '..', '..', 'bundled-extensions'));
+    candidates.push(path.join(__dirname, '..', 'bundled-extensions'));
   }
   // resourcesPath is the same as app.getAppPath() in dev
   if (process.resourcesPath && process.resourcesPath !== app.getAppPath()) {
     candidates.push(path.join(process.resourcesPath, 'extensions'));
+    candidates.push(path.join(process.resourcesPath, 'app', 'bundled-extensions'));
   }
 
   for (const srcDir of candidates) {
