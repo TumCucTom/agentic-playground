@@ -78,6 +78,16 @@ export const PanelView: React.FC<PanelViewProps> = ({
       ? 'Running — click to mark idle'
       : 'Idle — click to mark running';
 
+  // Border reflects panel state, with selection as the strongest
+  // signal. Selected wins over running so focus is unambiguous; an
+  // unselected running panel gets the orange treatment so the user
+  // can see at a glance which panels are active.
+  const borderColor = isSelected
+    ? '#5a9fd4'
+    : panel.state === 'running'
+      ? '#ffa500'
+      : '#2a2a2a';
+
   return (
     <div
       className="panel"
@@ -89,11 +99,13 @@ export const PanelView: React.FC<PanelViewProps> = ({
         width: geometryOverride?.width ?? panel.size.width,
         height: geometryOverride?.height ?? panel.size.height,
         backgroundColor: '#1f1f1f',
-        border: `1px solid ${isSelected ? '#5a9fd4' : '#2a2a2a'}`,
+        border: `1px solid ${borderColor}`,
         borderRadius: 6,
         boxShadow: isSelected
-          ? '0 0 0 1px #5a9fd4, 0 4px 16px rgba(0, 0, 0, 0.4)'
-          : '0 2px 8px rgba(0, 0, 0, 0.3)',
+          ? `0 0 0 1px #5a9fd4${panel.state === 'running' ? ', 0 0 12px rgba(255, 165, 0, 0.35)' : ''}, 0 4px 16px rgba(0, 0, 0, 0.4)`
+          : panel.state === 'running'
+            ? '0 0 8px rgba(255, 165, 0, 0.25), 0 2px 8px rgba(0, 0, 0, 0.3)'
+            : '0 2px 8px rgba(0, 0, 0, 0.3)',
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
