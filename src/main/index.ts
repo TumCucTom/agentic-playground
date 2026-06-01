@@ -471,6 +471,78 @@ function registerIpcHandlers(): void {
     }
   });
 
+  // Best-effort attempt to position a spawned app's window inside our
+  // Electron window. The macOS helper lives at native/reparent.swift
+  // and is run with the Swift interpreter. This is an experiment — if
+  // it fails (e.g., Accessibility permission not granted, the spawned
+  // app refuses to be moved, or `swift` isn't on PATH), the rest of the
+  // App Launcher flow is unaffected and the window streams into the
+  // panel as before.
+  ipcMain.handle(
+    'app:reparent',
+    async (
+      _event,
+      args: { bundleId: string; target: { x: number; y: number; width: number; height: number } }
+    ) => {
+      if (!mainWindow) return { ok: false, error: 'No main window' };
+      if (!args?.bundleId || typeof args.bundleId !== 'string') {
+        return { ok: false, error: 'bundleId required' };
+      }
+      const t = args.target;
+      if (
+        !t ||
+        typeof t.x !== 'number' ||
+        typeof t.y !== 'number' ||
+        typeof t.width !== 'number' ||
+        typeof t.height !== 'number'
+      ) {
+        return { ok: false, error: 'target rect required' };
+      }
+
+      const scriptPath = path.join(app.getAppPath(), 'native', 'reparent.swift');
+      if (!fs.existsSync(scriptPath)) {
+        return { ok: false, error: `Helper script not found at ${scriptPath}` };
+      }
+
+      const parent = mainWindow.getBounds();
+      const argv = [
+        scriptPath,
+        args.bundleId,
+        String(parent.x),
+        String(parent.y),
+        String(parent.width),
+        String(parent.height),
+        String(t.x),
+        String(t.y),
+        String(t.width),
+        String(t.height),
+      ];
+
+      try {
+        const stdout = await new Promise<string>((resolve, reject) => {
+          const child = spawn('swift', argv, { stdio: ['ignore', 'pipe', 'pipe'] });
+          let out = '';
+          let err = '';
+          child.stdout.on('data', (c) => (out += c.toString()));
+          child.stderr.on('data', (c) => (err += c.toString()));
+          child.on('error', reject);
+          child.on('close', (code) => {
+            if (code === 0) resolve(out.trim());
+            else reject(new Error(err.trim() || `swift exited ${code}`));
+          });
+        });
+        // Expected output: "ok <pid>"
+        const m = /^ok\s+(\d+)$/.exec(stdout);
+        if (m) {
+          return { ok: true, pid: Number(m[1]) };
+        }
+        return { ok: false, error: `Unexpected helper output: ${stdout}` };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
+    }
+  );
+
   ipcMain.handle(
     'desktop:capture',
     async (_event, sourceId: string) => {

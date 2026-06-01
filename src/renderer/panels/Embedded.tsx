@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Panel } from '../../shared/types';
 import { useCanvasStore } from '../state/canvasStore';
+import { rectsFromTree } from '../layout/splitTree';
 import { COMMON_APPS, nameToAppId } from '../commonApps';
 
 interface Props {
@@ -21,16 +22,30 @@ const FRAME_RATES = [15, 24, 30, 60];
 interface Prefs {
   appBundleId: string;
   frameRate: number;
+  // When true (default), after a successful launch we ask the main
+  // process to position the spawned app's window inside the Electron
+  // window so it visually lives "in the canvas" — the screen-mirror
+  // stream is layered on top. Off by default because it requires
+  // Accessibility permission and may not work for all apps.
+  reparent: boolean;
 }
 
 function loadPrefs(): Prefs {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      return {
+        appBundleId: '',
+        frameRate: 30,
+        reparent: true,
+        ...parsed,
+      };
+    }
   } catch {
     // ignore
   }
-  return { appBundleId: '', frameRate: 30 };
+  return { appBundleId: '', frameRate: 30, reparent: true };
 }
 
 function savePrefs(p: Prefs) {
@@ -50,7 +65,41 @@ function savePrefs(p: Prefs) {
 export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
   const ref = panel.content.type === 'embedded' ? panel.content.ref : null;
   const updatePanel = useCanvasStore((s) => s.updatePanel);
+  const viewport = useCanvasStore((s) => s.viewport);
+  const layoutMode = useCanvasStore((s) => s.layoutMode);
   const initialAppBundleId = ref?.appBundleId ?? '';
+
+  // Compute the panel's screen rect so the reparent helper can position
+  // the spawned app's window on top of where the user already sees the
+  // stream. Returns null if the panel isn't currently laid out (e.g.,
+  // the grid tree has no entry for it yet).
+  const getPanelScreenRect = (): { x: number; y: number; width: number; height: number } | null => {
+    const winScreenX = window.screenX ?? 0;
+    const winScreenY = window.screenY ?? 0;
+    // The Electron window's title bar is 28px tall; the canvas (and grid
+    // layout) starts underneath it. In grid mode the panels are at
+    // absolute positions inside that container.
+    if (layoutMode === 'grid') {
+      const tree = useCanvasStore.getState().gridTree;
+      if (!tree) return null;
+      const rects = rectsFromTree(tree, { x: 0, y: 0, w: window.innerWidth, h: window.innerHeight - 28 });
+      const r = rects.get(panel.id);
+      if (!r) return null;
+      return {
+        x: winScreenX + r.x,
+        y: winScreenY + 28 + r.y,
+        width: r.w,
+        height: r.h,
+      };
+    }
+    const z = viewport.zoom;
+    return {
+      x: winScreenX + (panel.position.x - viewport.x) * z,
+      y: winScreenY + 28 + (panel.position.y - viewport.y) * z,
+      width: panel.size.width * z,
+      height: panel.size.height * z,
+    };
+  };
   const [prefs, setPrefs] = useState<Prefs>(() => {
     const stored = loadPrefs();
     return { ...stored, appBundleId: initialAppBundleId || stored.appBundleId };
@@ -199,6 +248,22 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
           });
         }
 
+        // Best-effort: position the spawned app's window inside the
+        // Electron window so it visually lives "in the canvas". The
+        // native helper may fail (Accessibility permission, the app
+        // may refuse to be moved, etc.) — we silently fall through and
+        // just stream the window at its default position.
+        if (prefs.reparent) {
+          try {
+            const target = getPanelScreenRect();
+            if (target) {
+              await window.canvasAPI.reparentApp(bundleId, target);
+            }
+          } catch {
+            // ignore — reparent is best-effort
+          }
+        }
+
         // Poll desktopCapturer until the new window shows up. Apps take
         // 100-1500ms to register a window after launch.
         const deadline = Date.now() + 6000;
@@ -247,6 +312,24 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
     const bundleId = launchedBundleIdRef.current || prefs.appBundleId;
     if (bundleId) void launchNewInstance(bundleId, false);
   }, [launchNewInstance, prefs.appBundleId]);
+
+  // Re-position the spawned window so it sits over this panel. Useful
+  // when the user has dragged the panel after the initial launch.
+  const snapToPanel = useCallback(async () => {
+    const bundleId = launchedBundleIdRef.current;
+    if (!bundleId) return;
+    const target = getPanelScreenRect();
+    if (!target) return;
+    setError(null);
+    try {
+      const result = await window.canvasAPI.reparentApp(bundleId, target);
+      if (!result.ok) {
+        setError(result.error || 'Snap failed');
+      }
+    } catch (err) {
+      setError((err as Error).message);
+    }
+  }, [getPanelScreenRect]);
 
   // Load the running-windows list from the main process on mount.
   const refreshSources = useCallback(async () => {
@@ -624,6 +707,28 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
                   ))}
                 </div>
               </div>
+              <div style={{ marginTop: 8 }}>
+                <label
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 6,
+                    color: '#d0d0d0',
+                    fontSize: 11,
+                    cursor: 'pointer',
+                  }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={prefs.reparent}
+                    onChange={(e) => setPrefs((p) => ({ ...p, reparent: e.target.checked }))}
+                  />
+                  Position window inside canvas (reparent)
+                </label>
+                <div style={{ color: '#666', fontSize: 10, marginTop: 4, marginLeft: 20 }}>
+                  Requires Accessibility permission for Terminal.
+                </div>
+              </div>
             </div>
           )}
 
@@ -705,6 +810,21 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
             }}
           >
             ↻ relaunch
+          </button>
+          <button
+            onClick={snapToPanel}
+            title="Snap window to this panel"
+            style={{
+              padding: '4px 8px',
+              background: 'rgba(0, 0, 0, 0.7)',
+              color: '#d0d0d0',
+              border: '1px solid #3a3a3a',
+              borderRadius: 3,
+              fontSize: 10,
+              cursor: 'pointer',
+            }}
+          >
+            ⤴ snap
           </button>
           <button
             onClick={stopLaunched}

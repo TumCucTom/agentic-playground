@@ -50,6 +50,15 @@ VS Code–shaped extension host so existing extension patterns can be reused.
   spawned process is killed when the panel closes, and the system
   picker (`getDisplayMedia`) handles anything else. The stream is
   one-way — input still goes to the real app.
+  - **In-canvas positioning (experimental):** the App Launcher's
+    panel settings include a "Position window inside canvas"
+    toggle. When on, the main process runs `native/reparent.swift`
+    after launch — a Swift helper that uses the macOS accessibility
+    API to move the spawned app's window on top of the panel
+    (rather than at its default desktop position). Requires
+    Accessibility permission; the launch flow falls back gracefully
+    if the helper fails. A "snap" button in the streaming view
+    re-positions on demand.
 - **File browser & editor wired to the real filesystem** through IPC.
 
 ## Layout modes
