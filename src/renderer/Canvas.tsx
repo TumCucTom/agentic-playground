@@ -128,6 +128,10 @@ export const Canvas: React.FC<CanvasProps> = ({ background }) => {
       ) {
         e.preventDefault();
         useCanvasStore.getState().redo();
+      } else if (e.key === 'l' && (e.metaKey || e.ctrlKey) && e.shiftKey) {
+        e.preventDefault();
+        const current = useCanvasStore.getState().layoutMode;
+        useCanvasStore.getState().setLayoutMode(current === 'canvas' ? 'grid' : 'canvas');
       }
     };
     window.addEventListener('keydown', handleKey);

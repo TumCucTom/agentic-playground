@@ -4,6 +4,7 @@ import { Toolbox } from './Toolbox';
 import { useCanvasStore } from './state/canvasStore';
 import { CanvasAPI } from '../preload';
 import { Tooltip } from './Tooltip';
+import { LayoutModeToggle } from './layout/LayoutModeToggle';
 import {
   BackgroundPicker,
   BackgroundMode,
@@ -229,7 +230,8 @@ const TitleBar: React.FC<{
       <span>Canvas Workspace</span>
       <span style={{ color: '#666' }}>·</span>
       <span>{workspaceName}</span>
-      <div style={{ marginLeft: 'auto', WebkitAppRegion: 'no-drag' }}>
+      <div style={{ marginLeft: 'auto', WebkitAppRegion: 'no-drag', display: 'flex', gap: 8, alignItems: 'center' }}>
+        <LayoutModeToggle />
         <BackgroundPicker mode={background} onChange={onBackgroundChange} />
       </div>
     </div>
