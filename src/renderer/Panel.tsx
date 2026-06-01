@@ -100,7 +100,6 @@ export const PanelView: React.FC<PanelViewProps> = ({
           onFocus();
         }
       }}
-      onWheel={(e) => e.stopPropagation()}
     >
       <div
         className="panel-titlebar"

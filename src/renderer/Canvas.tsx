@@ -79,6 +79,12 @@ export const Canvas: React.FC<CanvasProps> = ({ background }) => {
     if (!el) return;
 
     const handleWheel = (e: WheelEvent) => {
+      // When a panel is selected, defer to the panel content (xterm scrollback,
+      // Monaco, file list, etc.). The user wants the focused panel to scroll,
+      // not the canvas. Escape to deselect and regain canvas control.
+      if (useCanvasStore.getState().selectedPanelIds.length > 0) {
+        return;
+      }
       e.preventDefault();
       const rect = el.getBoundingClientRect();
       const mouseX = e.clientX - rect.left;
