@@ -12,6 +12,7 @@ import {
   findBottomDividerPath,
   findLeftDividerPath,
   findTopDividerPath,
+  swapLeaves,
 } from '../../src/renderer/layout/splitTree';
 import { SplitTree } from '../../src/shared/types';
 
@@ -592,6 +593,120 @@ describe('splitTree', () => {
         b: leaf('b'),
       };
       expect(findTopDividerPath(tree, 'z')).toBeNull();
+    });
+  });
+
+  describe('swapLeaves', () => {
+    it('returns the tree unchanged when both ids are the same', () => {
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'v',
+        ratio: 0.5,
+        a: leaf('a'),
+        b: leaf('b'),
+      };
+      expect(swapLeaves(tree, 'a', 'a')).toBe(tree);
+    });
+
+    it('returns the tree unchanged when either id is missing', () => {
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'v',
+        ratio: 0.5,
+        a: leaf('a'),
+        b: leaf('b'),
+      };
+      expect(swapLeaves(tree, 'a', 'z')).toBe(tree);
+      expect(swapLeaves(tree, 'z', 'a')).toBe(tree);
+    });
+
+    it('swaps the two children of a simple split', () => {
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'v',
+        ratio: 0.5,
+        a: leaf('a'),
+        b: leaf('b'),
+      };
+      expect(swapLeaves(tree, 'a', 'b')).toEqual({
+        kind: 'split',
+        dir: 'v',
+        ratio: 0.5,
+        a: leaf('b'),
+        b: leaf('a'),
+      });
+    });
+
+    it('swaps leaves across nested levels of the tree', () => {
+      // Tree:
+      //   root v
+      //   /   \
+      //  v     c
+      //  / \
+      // a   b
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'v',
+        ratio: 0.5,
+        a: {
+          kind: 'split',
+          dir: 'v',
+          ratio: 0.5,
+          a: leaf('a'),
+          b: leaf('b'),
+        },
+        b: leaf('c'),
+      };
+      // Swap a (deep left) with c (shallow right).
+      expect(swapLeaves(tree, 'a', 'c')).toEqual({
+        kind: 'split',
+        dir: 'v',
+        ratio: 0.5,
+        a: {
+          kind: 'split',
+          dir: 'v',
+          ratio: 0.5,
+          a: leaf('c'),
+          b: leaf('b'),
+        },
+        b: leaf('a'),
+      });
+      // Swap b and c.
+      expect(swapLeaves(tree, 'b', 'c')).toEqual({
+        kind: 'split',
+        dir: 'v',
+        ratio: 0.5,
+        a: {
+          kind: 'split',
+          dir: 'v',
+          ratio: 0.5,
+          a: leaf('a'),
+          b: leaf('c'),
+        },
+        b: leaf('b'),
+      });
+    });
+
+    it('preserves the tree shape, ratios, and split directions', () => {
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'h',
+        ratio: 0.3,
+        a: {
+          kind: 'split',
+          dir: 'v',
+          ratio: 0.7,
+          a: leaf('a'),
+          b: leaf('b'),
+        },
+        b: leaf('c'),
+      };
+      const swapped = swapLeaves(tree, 'a', 'c') as Exclude<SplitTree, { kind: 'leaf' }>;
+      expect(swapped.ratio).toBe(0.3);
+      expect(swapped.dir).toBe('h');
+      const inner = swapped.a as Exclude<SplitTree, { kind: 'leaf' }>;
+      expect(inner.ratio).toBe(0.7);
+      expect(inner.dir).toBe('v');
     });
   });
 });

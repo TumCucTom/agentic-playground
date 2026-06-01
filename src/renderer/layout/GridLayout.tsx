@@ -59,6 +59,7 @@ export const GridLayout: React.FC = () => {
   const selectedPanelIds = useCanvasStore((s) => s.selectedPanelIds);
   const focusPanel = useCanvasStore((s) => s.focusPanel);
   const resizeDivider = useCanvasStore((s) => s.resizeDivider);
+  const swapGridLeaves = useCanvasStore((s) => s.swapGridLeaves);
 
   const rootRef = useRef<HTMLDivElement>(null);
   // Size is the panel area inside the chrome (sidebar + title bar).
@@ -68,6 +69,19 @@ export const GridLayout: React.FC = () => {
     w: window.innerWidth - SIDEBAR_WIDTH,
     h: window.innerHeight - TITLE_BAR_HEIGHT,
   });
+
+  // Panel being dragged from its title bar, and the cell currently
+  // under the cursor (the drop target highlight). Cleared on
+  // mouseup. The ref mirrors the state so the mouseup handler can
+  // read the latest target synchronously (React state is async).
+  const [dragState, setDragState] = useState<{
+    sourceId: string;
+    targetId: string | null;
+  } | null>(null);
+  const dragStateRef = useRef<{
+    sourceId: string;
+    targetId: string | null;
+  } | null>(null);
 
   useEffect(() => {
     const el = rootRef.current;
@@ -151,6 +165,59 @@ export const GridLayout: React.FC = () => {
     window.addEventListener('mouseup', onUp);
   };
 
+  // Title-bar drag in grid mode swaps the dragged panel with whichever
+  // cell the cursor is over on mouseup. There are no coordinates or
+  // free placement — the tree stays a binary split, the panels just
+  // change leaves.
+  const handleDragStart = (panelId: string) => (e: React.MouseEvent) => {
+    e.preventDefault();
+    const initial = { sourceId: panelId, targetId: null };
+    setDragState(initial);
+    dragStateRef.current = initial;
+
+    const onMove = (ev: MouseEvent) => {
+      // Hide the panel under the cursor first so elementFromPoint
+      // doesn't return the source panel itself; restore it after.
+      // (Without this, dragging a panel over itself would always
+      // return the source and the target would never update.)
+      const sourceEl = document.querySelector(
+        `[data-panel-id="${panelId}"]`
+      ) as HTMLElement | null;
+      const prevPointerEvents = sourceEl?.style.pointerEvents;
+      if (sourceEl) sourceEl.style.pointerEvents = 'none';
+
+      let targetId: string | null = null;
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      if (el) {
+        const panelEl = el.closest('.panel') as HTMLElement | null;
+        const id = panelEl?.dataset.panelId;
+        if (id && id !== panelId) targetId = id;
+      }
+
+      if (sourceEl) sourceEl.style.pointerEvents = prevPointerEvents ?? '';
+
+      const next = { sourceId: panelId, targetId };
+      dragStateRef.current = next;
+      setDragState((s) =>
+        s && s.sourceId === panelId && s.targetId === targetId ? s : next
+      );
+    };
+
+    const onUp = () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      const final = dragStateRef.current;
+      if (final && final.targetId && final.targetId !== final.sourceId) {
+        swapGridLeaves(final.sourceId, final.targetId);
+      }
+      setDragState(null);
+      dragStateRef.current = null;
+    };
+
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+  };
+
   // For each panel, which resize directions have a real divider to
   // move? Pass the available set to PanelView so it can hide handles
   // that would no-op (e.g., grabbing the left edge of the leftmost
@@ -213,10 +280,9 @@ export const GridLayout: React.FC = () => {
             panel={panel}
             isSelected={selectedPanelIds.includes(panel.id)}
             onFocus={() => focusPanel(panel.id)}
-            onDragStart={() => {}}
+            onDragStart={handleDragStart(panel.id)}
             onResizeStart={handleResizeStart(panel.id)}
             geometryOverride={{ x: r.x, y: r.y, width: r.w, height: r.h }}
-            dragDisabled
             availableHandles={availableHandlesByPanel.get(panel.id)}
           />
         );
@@ -234,6 +300,27 @@ export const GridLayout: React.FC = () => {
           containerStart={d.containerStart}
         />
       ))}
+
+      {dragState?.targetId && (() => {
+        const r = rects.get(dragState.targetId);
+        if (!r) return null;
+        return (
+          <div
+            style={{
+              position: 'absolute',
+              left: r.x,
+              top: r.y,
+              width: r.w,
+              height: r.h,
+              border: '2px solid #5a9fd4',
+              borderRadius: 6,
+              backgroundColor: 'rgba(90, 159, 212, 0.1)',
+              pointerEvents: 'none',
+              zIndex: 9999,
+            }}
+          />
+        );
+      })()}
     </div>
   );
 };

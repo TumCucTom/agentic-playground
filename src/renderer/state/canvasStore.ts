@@ -7,6 +7,7 @@ import {
   resizeDivider as resizeDividerTree,
   removeLeaf as removeLeafTree,
   splitLeaf,
+  swapLeaves as swapLeavesTree,
 } from '../layout/splitTree';
 
 const MAX_HISTORY = 50;
@@ -42,6 +43,7 @@ export interface CanvasStore extends CanvasState {
   setLayoutMode: (mode: LayoutMode) => void;
   splitFocused: (dir: 'h' | 'v', newPanel: Panel) => void;
   resizeDivider: (leafPath: number[], ratio: number) => void;
+  swapGridLeaves: (idA: string, idB: string) => void;
   closeLeaf: (panelId: string) => void;
   toggleMaximize: (panelId: string) => void;
   markClean: () => void;
@@ -331,6 +333,14 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
       set((s) => {
         if (!s.gridTree) return s;
         return { gridTree: resizeDividerTree(s.gridTree, path, ratio), isDirty: true };
+      });
+    },
+    swapGridLeaves: (idA, idB) => {
+      if (idA === idB) return;
+      pushHistory();
+      set((s) => {
+        if (!s.gridTree) return s;
+        return { gridTree: swapLeavesTree(s.gridTree, idA, idB), isDirty: true };
       });
     },
     closeLeaf: (panelId) => {

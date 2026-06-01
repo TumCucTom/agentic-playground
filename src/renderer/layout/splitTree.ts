@@ -87,6 +87,36 @@ export function getNodeAtPath(tree: SplitTree, path: number[]): SplitTree | null
   return node;
 }
 
+// Swap the panelIds of two leaves in the tree. The tree shape (split
+// structure, ratios) is preserved — only the panelIds at the two
+// leaf positions change. Returns the original tree unchanged if
+// either id isn't found, or if both ids resolve to the same leaf
+// (no-op).
+export function swapLeaves(tree: SplitTree, idA: string, idB: string): SplitTree {
+  if (idA === idB) return tree;
+  const pathA = findLeafPath(tree, idA);
+  const pathB = findLeafPath(tree, idB);
+  if (pathA === null || pathB === null) return tree;
+  // Two passes so we don't accidentally assign the same id if the
+  // tree contains a third reference (shouldn't happen, but cheap).
+  return setLeafPanelId(setLeafPanelId(tree, pathA, idB), pathB, idA);
+}
+
+function setLeafPanelId(
+  tree: SplitTree,
+  path: number[],
+  panelId: string
+): SplitTree {
+  if (path.length === 0) {
+    if (tree.kind !== 'leaf') return tree;
+    return { ...tree, panelId };
+  }
+  if (tree.kind !== 'split') return tree;
+  const [head, ...rest] = path;
+  if (head === 0) return { ...tree, a: setLeafPanelId(tree.a, rest, panelId) };
+  return { ...tree, b: setLeafPanelId(tree.b, rest, panelId) };
+}
+
 export function findRightDividerPath(tree: SplitTree, panelId: string): number[] | null {
   const leafPath = findLeafPath(tree, panelId);
   if (!leafPath) return null;
