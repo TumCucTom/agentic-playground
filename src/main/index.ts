@@ -478,6 +478,10 @@ function registerIpcHandlers(): void {
   // app refuses to be moved, or `swift` isn't on PATH), the rest of the
   // App Launcher flow is unaffected and the window streams into the
   // panel as before.
+  //
+  // We look up the pid from `launchedApps` (populated by app:launch)
+  // rather than launching a second instance via the helper — `open -n`
+  // would create a duplicate.
   ipcMain.handle(
     'app:reparent',
     async (
@@ -499,6 +503,21 @@ function registerIpcHandlers(): void {
         return { ok: false, error: 'target rect required' };
       }
 
+      // Find the most-recently launched pid for this bundle id. If
+      // there are multiple, the latest one is the one we want — the
+      // most recent launch.
+      let pid: number | null = null;
+      let latestSpawnedAt = 0;
+      for (const [p, info] of launchedApps.entries()) {
+        if (info.bundleId === args.bundleId && info.spawnedAt > latestSpawnedAt) {
+          pid = p;
+          latestSpawnedAt = info.spawnedAt;
+        }
+      }
+      if (pid === null) {
+        return { ok: false, error: `No launched app found for ${args.bundleId}` };
+      }
+
       const scriptPath = path.join(app.getAppPath(), 'native', 'reparent.swift');
       if (!fs.existsSync(scriptPath)) {
         return { ok: false, error: `Helper script not found at ${scriptPath}` };
@@ -507,7 +526,8 @@ function registerIpcHandlers(): void {
       const parent = mainWindow.getBounds();
       const argv = [
         scriptPath,
-        args.bundleId,
+        '--pid',
+        String(pid),
         String(parent.x),
         String(parent.y),
         String(parent.width),
@@ -531,7 +551,6 @@ function registerIpcHandlers(): void {
             else reject(new Error(err.trim() || `swift exited ${code}`));
           });
         });
-        // Expected output: "ok <pid>"
         const m = /^ok\s+(\d+)$/.exec(stdout);
         if (m) {
           return { ok: true, pid: Number(m[1]) };

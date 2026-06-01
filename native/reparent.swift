@@ -1,13 +1,16 @@
 // native/reparent.swift
 //
-// macOS helper for the App Launcher's "in-canvas" mode. Spawns a macOS
-// app and positions its main window inside the bounds of our Electron
-// app's window, so the user sees the spawned app's window inside the
-// canvas rather than at a default position on the desktop.
+// macOS helper for the App Launcher's "in-canvas" mode. Positions a
+// spawned app's main window inside the bounds of our Electron app's
+// window, so the user sees the spawned app's window inside the canvas
+// rather than at a default position on the desktop.
 //
 // Usage:
-//   reparent <bundleId> <parentX> <parentY> <parentW> <parentH> \
-//            <targetX> <targetY> <targetW> <targetH>
+//   reparent --pid <pid> <parentX> <parentY> <parentW> <parentH> \
+//             <targetX> <targetY> <targetW> <targetH>
+//
+//   reparent --launch <bundleId> <parentX> <parentY> <parentW> <parentH> \
+//             <targetX> <targetY> <targetW> <targetH>
 //
 // On success, prints "ok <pid>". On failure, prints
 // "error <message>" and exits non-zero.
@@ -20,50 +23,97 @@ import Cocoa
 import ApplicationServices
 
 func usage() -> Never {
-  FileHandle.standardError.write(Data("usage: reparent <bundleId> <px> <py> <pw> <ph> <tx> <ty> <tw> <th>\n".utf8))
+  FileHandle.standardError.write(Data("usage:\n  reparent --pid <pid> <px> <py> <pw> <ph> <tx> <ty> <tw> <th>\n  reparent --launch <bundleId> <px> <py> <pw> <ph> <tx> <ty> <tw> <th>\n".utf8))
   exit(64)
 }
 
 let args = CommandLine.arguments
-guard args.count == 10 else { usage() }
+guard args.count == 11 else { usage() }
 
-let bundleId = args[1]
-guard
-  let parentX = Double(args[2]),
-  let parentY = Double(args[3]),
-  let parentW = Double(args[4]),
-  let parentH = Double(args[5]),
-  let targetX = Double(args[6]),
-  let targetY = Double(args[7]),
-  let targetW = Double(args[8]),
-  let targetH = Double(args[9])
-else { usage() }
-
-// 1. Launch the app via `open -nb`. We don't wait — `open` is short-lived
-// and the new app is its own process. We poll for it to appear.
-let open = Process()
-open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-open.arguments = ["-nb", bundleId]
-do {
-  try open.run()
-} catch {
-  print("error: failed to launch \(bundleId): \(error.localizedDescription)")
-  exit(1)
+let mode = args[1]
+let identifier: String
+let needLaunch: Bool
+if mode == "--pid" {
+  identifier = args[2]
+  needLaunch = false
+} else if mode == "--launch" {
+  identifier = args[2]
+  needLaunch = true
+} else {
+  usage()
 }
-open.waitUntilExit()
+
+let numericArgs: [Double]
+if mode == "--pid" {
+  // args[3..10] are the eight numbers
+  guard
+    let a = Double(args[3]), let b = Double(args[4]),
+    let c = Double(args[5]), let d = Double(args[6]),
+    let e = Double(args[7]), let f = Double(args[8]),
+    let g = Double(args[9]), let h = Double(args[10])
+  else { usage() }
+  numericArgs = [a, b, c, d, e, f, g, h]
+} else {
+  guard
+    let a = Double(args[3]), let b = Double(args[4]),
+    let c = Double(args[5]), let d = Double(args[6]),
+    let e = Double(args[7]), let f = Double(args[8]),
+    let g = Double(args[9]), let h = Double(args[10])
+  else { usage() }
+  numericArgs = [a, b, c, d, e, f, g, h]
+}
+
+let targetX = numericArgs[4]
+let targetY = numericArgs[5]
+let targetW = numericArgs[6]
+let targetH = numericArgs[7]
+
+// 1. Launch the app if --launch was passed. (The main process usually
+// calls --pid because it has already launched the app via app:launch;
+// launching again with -n would spawn a second instance.)
+var pid: pid_t = 0
+if needLaunch {
+  let open = Process()
+  open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+  open.arguments = ["-nb", identifier]
+  do {
+    try open.run()
+  } catch {
+    print("error: failed to launch \(identifier): \(error.localizedDescription)")
+    exit(1)
+  }
+  open.waitUntilExit()
+} else {
+  guard let p = pid_t(identifier) else {
+    print("error: invalid pid '\(identifier)'")
+    exit(1)
+  }
+  pid = p
+}
 
 // 2. Poll for the app's first window to appear (up to 5s).
 let deadline = Date().addingTimeInterval(5.0)
-var pid: pid_t = 0
 var axWindow: AXUIElement?
 
+func findWindow(for pid: pid_t) -> AXUIElement? {
+  let axApp = AXUIElementCreateApplication(pid)
+  var ref: CFTypeRef?
+  let r = AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &ref)
+  guard r == .success, let arr = ref as? [AXUIElement] else { return nil }
+  return arr.first
+}
+
 while Date() < deadline {
-  if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == bundleId }) {
-    pid = app.processIdentifier
-    let axApp = AXUIElementCreateApplication(pid)
-    var ref: CFTypeRef?
-    let r = AXUIElementCopyAttributeValue(axApp, kAXWindowsAttribute as CFString, &ref)
-    if r == .success, let arr = ref as? [AXUIElement], let w = arr.first {
+  if needLaunch {
+    if let app = NSWorkspace.shared.runningApplications.first(where: { $0.bundleIdentifier == identifier }) {
+      pid = app.processIdentifier
+      if let w = findWindow(for: pid) {
+        axWindow = w
+        break
+      }
+    }
+  } else {
+    if let w = findWindow(for: pid) {
       axWindow = w
       break
     }
@@ -72,7 +122,7 @@ while Date() < deadline {
 }
 
 guard let window = axWindow, pid != 0 else {
-  print("error: window for \(bundleId) did not appear within 5s")
+  print("error: window for pid \(pid) did not appear within 5s")
   exit(2)
 }
 
@@ -84,8 +134,7 @@ let axX = targetX
 let axY = screenHeight - targetY - targetH
 
 // Set the position and size via the accessibility API. Most apps
-// respond to this; some refuse (system apps, sandboxed apps). We try
-// both, and if the size set fails, try a position+size set together.
+// respond to this; some refuse (system apps, sandboxed apps).
 var newPos = CGPoint(x: axX, y: axY)
 let posResult = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, NSValue(point: newPos))
 if posResult != .success {

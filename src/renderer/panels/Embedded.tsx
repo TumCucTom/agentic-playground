@@ -251,16 +251,19 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
         // Best-effort: position the spawned app's window inside the
         // Electron window so it visually lives "in the canvas". The
         // native helper may fail (Accessibility permission, the app
-        // may refuse to be moved, etc.) — we silently fall through and
-        // just stream the window at its default position.
+        // may refuse to be moved, etc.) — we surface the failure as a
+        // soft warning so the user knows to check Accessibility.
         if (prefs.reparent) {
           try {
             const target = getPanelScreenRect();
             if (target) {
-              await window.canvasAPI.reparentApp(bundleId, target);
+              const r = await window.canvasAPI.reparentApp(bundleId, target);
+              if (!r.ok) {
+                setError(`Reparent failed: ${r.error || 'unknown'}`);
+              }
             }
-          } catch {
-            // ignore — reparent is best-effort
+          } catch (err) {
+            setError(`Reparent failed: ${(err as Error).message}`);
           }
         }
 
