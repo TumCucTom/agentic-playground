@@ -7,6 +7,9 @@ import {
   firstLeaf,
   allLeaves,
   rectsFromTree,
+  getNodeAtPath,
+  findRightDividerPath,
+  findBottomDividerPath,
 } from '../../src/renderer/layout/splitTree';
 import { SplitTree } from '../../src/shared/types';
 
@@ -244,6 +247,230 @@ describe('splitTree', () => {
       expect(rects.get('a')).toEqual({ x: 0, y: 0, w: 400, h: 600 });
       expect(rects.get('b')).toEqual({ x: 400, y: 0, w: 400, h: 300 });
       expect(rects.get('c')).toEqual({ x: 400, y: 300, w: 400, h: 300 });
+    });
+  });
+
+  describe('getNodeAtPath', () => {
+    it('returns the root for an empty path', () => {
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'v',
+        ratio: 0.5,
+        a: leaf('a'),
+        b: leaf('b'),
+      };
+      expect(getNodeAtPath(tree, [])).toBe(tree);
+    });
+
+    it('descends by index to a leaf', () => {
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'v',
+        ratio: 0.5,
+        a: leaf('a'),
+        b: { kind: 'split', dir: 'h', ratio: 0.5, a: leaf('b'), b: leaf('c') },
+      };
+      expect(getNodeAtPath(tree, [0])).toEqual(leaf('a'));
+      expect(getNodeAtPath(tree, [1, 0])).toEqual(leaf('b'));
+      expect(getNodeAtPath(tree, [1, 1])).toEqual(leaf('c'));
+    });
+
+    it('returns null when the path runs off the tree', () => {
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'v',
+        ratio: 0.5,
+        a: leaf('a'),
+        b: leaf('b'),
+      };
+      expect(getNodeAtPath(tree, [0, 0])).toBeNull();
+    });
+  });
+
+  describe('findRightDividerPath', () => {
+    it('returns null for a single leaf (no divider)', () => {
+      expect(findRightDividerPath(leaf('a'), 'a')).toBeNull();
+    });
+
+    it('returns the root for the left child of a v split', () => {
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'v',
+        ratio: 0.5,
+        a: leaf('a'),
+        b: leaf('b'),
+      };
+      expect(findRightDividerPath(tree, 'a')).toEqual([]);
+    });
+
+    it('returns null for the right child of a v split', () => {
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'v',
+        ratio: 0.5,
+        a: leaf('a'),
+        b: leaf('b'),
+      };
+      expect(findRightDividerPath(tree, 'b')).toBeNull();
+    });
+
+    it('returns null when the only ancestor splits are horizontal', () => {
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'h',
+        ratio: 0.5,
+        a: leaf('a'),
+        b: leaf('b'),
+      };
+      expect(findRightDividerPath(tree, 'a')).toBeNull();
+    });
+
+    it('returns the deepest v split where the leaf is in the left child', () => {
+      // Tree:
+      //   root v
+      //   /   \
+      //  a     v
+      //       / \
+      //      h   c
+      //     / \
+      //    b   d
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'v',
+        ratio: 0.5,
+        a: leaf('a'),
+        b: {
+          kind: 'split',
+          dir: 'v',
+          ratio: 0.5,
+          a: {
+            kind: 'split',
+            dir: 'h',
+            ratio: 0.5,
+            a: leaf('b'),
+            b: leaf('d'),
+          },
+          b: leaf('c'),
+        },
+      };
+      // a is in the left of the root v → right divider is the root v.
+      expect(findRightDividerPath(tree, 'a')).toEqual([]);
+      // b is in the left of [1,0] (h split, ignored), then left of [1] (v split) → [1].
+      expect(findRightDividerPath(tree, 'b')).toEqual([1]);
+      // d is in the right of [1,0] (h split) — leaf is in b child, not a → no match there.
+      // d is then in the left of [1] (v split) → [1].
+      expect(findRightDividerPath(tree, 'd')).toEqual([1]);
+      // c is in the right of [1] (v split) → no match. No other v ancestors → null.
+      expect(findRightDividerPath(tree, 'c')).toBeNull();
+    });
+
+    it('returns null when the leaf is not in the tree', () => {
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'v',
+        ratio: 0.5,
+        a: leaf('a'),
+        b: leaf('b'),
+      };
+      expect(findRightDividerPath(tree, 'z')).toBeNull();
+    });
+  });
+
+  describe('findBottomDividerPath', () => {
+    it('returns null for a single leaf (no divider)', () => {
+      expect(findBottomDividerPath(leaf('a'), 'a')).toBeNull();
+    });
+
+    it('returns the root for the top child of an h split', () => {
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'h',
+        ratio: 0.5,
+        a: leaf('a'),
+        b: leaf('b'),
+      };
+      expect(findBottomDividerPath(tree, 'a')).toEqual([]);
+    });
+
+    it('returns null for the bottom child of an h split', () => {
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'h',
+        ratio: 0.5,
+        a: leaf('a'),
+        b: leaf('b'),
+      };
+      expect(findBottomDividerPath(tree, 'b')).toBeNull();
+    });
+
+    it('returns null when the only ancestors are vertical splits', () => {
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'v',
+        ratio: 0.5,
+        a: leaf('a'),
+        b: leaf('b'),
+      };
+      expect(findBottomDividerPath(tree, 'a')).toBeNull();
+    });
+
+    it('returns the deepest h split where the leaf is in the top child', () => {
+      // Tree:
+      //   root h
+      //   /   \
+      //  v     e
+      // / \
+      // a  h
+      //   / \
+      //  b   d
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'h',
+        ratio: 0.5,
+        a: {
+          kind: 'split',
+          dir: 'v',
+          ratio: 0.5,
+          a: leaf('a'),
+          b: {
+            kind: 'split',
+            dir: 'h',
+            ratio: 0.5,
+            a: leaf('b'),
+            b: leaf('d'),
+          },
+        },
+        b: leaf('e'),
+      };
+      // a is in the left of root h → not in b child, but in a (top) child → MATCH.
+      // Wait — root is h, and a is in a child of root. So leafPath = [0, 0], and at i=1,
+      // ancestor is the v split, not h, so no match. At i=0, ancestor is root h, leafPath[0]=0
+      // (top child), dir is h → MATCH. Returns [].
+      expect(findBottomDividerPath(tree, 'a')).toEqual([]);
+      // b is in [0, 1, 0] — top of [0,1] (h split) → [0, 1].
+      expect(findBottomDividerPath(tree, 'b')).toEqual([0, 1]);
+      // d is in [0, 1, 1] — bottom of [0,1] (h split) → no match there. Then [0] (v split), not h. Then [] (h split), but leafPath[0]=0 (top) — wait, d is at [0, 1, 1], so leafPath[0] = 0, ancestor at [] is root h, leafPath[0]=0, dir h → MATCH? But d is the bottom-right of the left half, it has no bottom divider that would resize it.
+      // Hmm — at i=2, ancestor is h split at [0, 1], leafPath[2]=1 (bottom), no match.
+      // At i=1, ancestor is v split at [0], not h. No match.
+      // At i=0, ancestor is root h, leafPath[0]=0 (top), dir h → MATCH. Returns [].
+      // But this is wrong — d is at the bottom of the right column of the left half, so its bottom
+      // edge is the bottom of the left half, which is the root h divider. Wait, actually d IS the
+      // bottom — the root h is the divider between the top half (v split) and bottom half (e).
+      // So d's bottom is at the root h divider. Dragging root h down would make d taller. Correct.
+      expect(findBottomDividerPath(tree, 'd')).toEqual([]);
+      // e is at [1] — bottom of root h → no match.
+      expect(findBottomDividerPath(tree, 'e')).toBeNull();
+    });
+
+    it('returns null when the leaf is not in the tree', () => {
+      const tree: SplitTree = {
+        kind: 'split',
+        dir: 'h',
+        ratio: 0.5,
+        a: leaf('a'),
+        b: leaf('b'),
+      };
+      expect(findBottomDividerPath(tree, 'z')).toBeNull();
     });
   });
 });

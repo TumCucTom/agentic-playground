@@ -78,6 +78,47 @@ export function allLeaves(tree: SplitTree): string[] {
   return [...allLeaves(tree.a), ...allLeaves(tree.b)];
 }
 
+export function getNodeAtPath(tree: SplitTree, path: number[]): SplitTree | null {
+  let node: SplitTree = tree;
+  for (const idx of path) {
+    if (node.kind !== 'split') return null;
+    node = idx === 0 ? node.a : node.b;
+  }
+  return node;
+}
+
+export function findRightDividerPath(tree: SplitTree, panelId: string): number[] | null {
+  const leafPath = findLeafPath(tree, panelId);
+  if (!leafPath) return null;
+  // Walk from the deepest ancestor up to the root. The right boundary of
+  // a leaf is the closest 'v' split whose `a` child contains the leaf —
+  // that's the divider that, if dragged, resizes the leaf to the right.
+  for (let i = leafPath.length - 1; i >= 0; i--) {
+    const ancestorPath = leafPath.slice(0, i);
+    const ancestor = getNodeAtPath(tree, ancestorPath);
+    if (ancestor && ancestor.kind === 'split' && ancestor.dir === 'v' && leafPath[i] === 0) {
+      return ancestorPath;
+    }
+  }
+  return null;
+}
+
+export function findBottomDividerPath(tree: SplitTree, panelId: string): number[] | null {
+  const leafPath = findLeafPath(tree, panelId);
+  if (!leafPath) return null;
+  // Mirror of findRightDividerPath: closest 'h' split whose `a` (top) child
+  // contains the leaf is the divider that, if dragged, resizes the leaf
+  // downward.
+  for (let i = leafPath.length - 1; i >= 0; i--) {
+    const ancestorPath = leafPath.slice(0, i);
+    const ancestor = getNodeAtPath(tree, ancestorPath);
+    if (ancestor && ancestor.kind === 'split' && ancestor.dir === 'h' && leafPath[i] === 0) {
+      return ancestorPath;
+    }
+  }
+  return null;
+}
+
 export function rectsFromTree(tree: SplitTree, viewport: Rect): Map<string, Rect> {
   const out = new Map<string, Rect>();
   walk(tree, viewport);
