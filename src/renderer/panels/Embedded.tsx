@@ -115,6 +115,7 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
   const launchedAppNameRef = useRef<string | null>(null);
   const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reparentError, setReparentError] = useState<string | null>(null);
   const [lastMirror, setLastMirror] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
 
@@ -259,11 +260,13 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
             if (target) {
               const r = await window.canvasAPI.reparentApp(bundleId, target);
               if (!r.ok) {
-                setError(`Reparent failed: ${r.error || 'unknown'}`);
+                setReparentError(`Reparent failed: ${r.error || 'unknown'}`);
+              } else {
+                setReparentError(null);
               }
             }
           } catch (err) {
-            setError(`Reparent failed: ${(err as Error).message}`);
+            setReparentError(`Reparent failed: ${(err as Error).message}`);
           }
         }
 
@@ -323,14 +326,14 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
     if (!bundleId) return;
     const target = getPanelScreenRect();
     if (!target) return;
-    setError(null);
+    setReparentError(null);
     try {
       const result = await window.canvasAPI.reparentApp(bundleId, target);
       if (!result.ok) {
-        setError(result.error || 'Snap failed');
+        setReparentError(result.error || 'Snap failed');
       }
     } catch (err) {
-      setError((err as Error).message);
+      setReparentError((err as Error).message);
     }
   }, [getPanelScreenRect]);
 
@@ -786,6 +789,45 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
             }}
           />
           live · {prefs.frameRate}fps{lastMirror ? ` · ${lastMirror}` : ''}
+        </div>
+      )}
+
+      {reparentError && (
+        <div
+          data-testid="embedded-reparent-error"
+          style={{
+            position: 'absolute',
+            top: 6,
+            left: 8,
+            right: 8,
+            padding: '4px 8px',
+            background: 'rgba(120, 40, 40, 0.85)',
+            color: '#ffd0d0',
+            fontSize: 10,
+            borderRadius: 3,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 8,
+          }}
+        >
+          <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {reparentError}
+          </span>
+          <button
+            onClick={() => setReparentError(null)}
+            aria-label="Dismiss"
+            style={{
+              background: 'transparent',
+              border: 'none',
+              color: '#ffd0d0',
+              cursor: 'pointer',
+              padding: 0,
+              fontSize: 12,
+              lineHeight: 1,
+            }}
+          >
+            ×
+          </button>
         </div>
       )}
 

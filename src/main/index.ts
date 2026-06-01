@@ -472,12 +472,13 @@ function registerIpcHandlers(): void {
   });
 
   // Best-effort attempt to position a spawned app's window inside our
-  // Electron window. The macOS helper lives at native/reparent.swift
-  // and is run with the Swift interpreter. This is an experiment — if
-  // it fails (e.g., Accessibility permission not granted, the spawned
-  // app refuses to be moved, or `swift` isn't on PATH), the rest of the
-  // App Launcher flow is unaffected and the window streams into the
-  // panel as before.
+  // Electron window. The macOS helper lives at
+  // native/reparent.applescript and is run via `osascript`, which uses
+  // System Events for the AX write. This is an experiment — if it
+  // fails (e.g., Accessibility permission not granted, the spawned
+  // app refuses to be moved, or `osascript` isn't on PATH), the rest
+  // of the App Launcher flow is unaffected and the window streams
+  // into the panel as before.
   //
   // We look up the pid from `launchedApps` (populated by app:launch)
   // rather than launching a second instance via the helper — `open -n`
@@ -518,20 +519,20 @@ function registerIpcHandlers(): void {
         return { ok: false, error: `No launched app found for ${args.bundleId}` };
       }
 
-      const scriptPath = path.join(app.getAppPath(), 'native', 'reparent.swift');
+      const scriptPath = path.join(app.getAppPath(), 'native', 'reparent.applescript');
       if (!fs.existsSync(scriptPath)) {
         return { ok: false, error: `Helper script not found at ${scriptPath}` };
       }
 
-      const parent = mainWindow.getBounds();
+      // osascript uses System Events for the AX write, which is the
+      // process that's normally granted Accessibility trust (not the
+      // `swift` interpreter binary, which is what the previous
+      // implementation called and which silently failed with
+      // kAXErrorAPIDisabled). System Events uses top-left screen
+      // coordinates, which is what the renderer already passes.
       const argv = [
         scriptPath,
-        '--pid',
         String(pid),
-        String(parent.x),
-        String(parent.y),
-        String(parent.width),
-        String(parent.height),
         String(t.x),
         String(t.y),
         String(t.width),
@@ -540,7 +541,7 @@ function registerIpcHandlers(): void {
 
       try {
         const stdout = await new Promise<string>((resolve, reject) => {
-          const child = spawn('swift', argv, { stdio: ['ignore', 'pipe', 'pipe'] });
+          const child = spawn('osascript', argv, { stdio: ['ignore', 'pipe', 'pipe'] });
           let out = '';
           let err = '';
           child.stdout.on('data', (c) => (out += c.toString()));
@@ -548,7 +549,7 @@ function registerIpcHandlers(): void {
           child.on('error', reject);
           child.on('close', (code) => {
             if (code === 0) resolve(out.trim());
-            else reject(new Error(err.trim() || `swift exited ${code}`));
+            else reject(new Error(err.trim() || `osascript exited ${code}`));
           });
         });
         const m = /^ok\s+(\d+)$/.exec(stdout);
