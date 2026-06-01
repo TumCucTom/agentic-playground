@@ -78,12 +78,26 @@ export interface Viewport {
   zoom: number;
 }
 
+export type LayoutMode = 'canvas' | 'grid';
+
+export type SplitTree =
+  | { kind: 'leaf'; panelId: string }
+  | {
+      kind: 'split';
+      dir: 'h' | 'v';
+      ratio: number;
+      a: SplitTree;
+      b: SplitTree;
+    };
+
 export interface CanvasState {
   panels: Panel[];
   viewport: Viewport;
   selectedPanelIds: string[];
   workspaceName: string;
   lastUpdated: number;
+  layoutMode: LayoutMode;
+  gridTree?: SplitTree;
 }
 
 export interface Workspace {
