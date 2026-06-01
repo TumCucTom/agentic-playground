@@ -7,6 +7,8 @@ import { PanelType } from '../shared/types';
 import { createPanelOfType } from './panels/factory';
 import { BackgroundMode } from './BackgroundPicker';
 import { GridLayout } from './layout/GridLayout';
+import { snap, SnapGuide } from './layout/snapEngine';
+import { SnapGuides } from './layout/SnapGuides';
 
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
@@ -47,6 +49,9 @@ export const Canvas: React.FC<CanvasProps> = ({ background }) => {
     canvasX: number;
     canvasY: number;
   } | null>(null);
+
+  const [snapGuides, setSnapGuides] = useState<SnapGuide[]>([]);
+  const cmdHeldRef = useRef(false);
 
   // Detect OS color scheme for 'system' background
   const [systemDark, setSystemDark] = useState<boolean>(() =>
@@ -129,6 +134,22 @@ export const Canvas: React.FC<CanvasProps> = ({ background }) => {
     return () => window.removeEventListener('keydown', handleKey);
   }, [selectedPanelIds, setSelected, zoomViewport]);
 
+  // Track Cmd key to disable snap during drag (snap is enabled by default in canvas mode).
+  useEffect(() => {
+    const onDown = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey) cmdHeldRef.current = true;
+    };
+    const onUp = (e: KeyboardEvent) => {
+      if (!e.metaKey && !e.ctrlKey) cmdHeldRef.current = false;
+    };
+    window.addEventListener('keydown', onDown);
+    window.addEventListener('keyup', onUp);
+    return () => {
+      window.removeEventListener('keydown', onDown);
+      window.removeEventListener('keyup', onUp);
+    };
+  }, []);
+
   // Sort panels by zOrder for rendering
   const sortedPanels = React.useMemo(
     () => [...panels].sort((a, b) => a.zOrder - b.zOrder),
@@ -165,9 +186,30 @@ export const Canvas: React.FC<CanvasProps> = ({ background }) => {
         dragStateRef.current.startX = e.clientX;
         dragStateRef.current.startY = e.clientY;
       } else if (drag.type === 'move' && drag.panelId) {
-        const newX = (drag.startPanelX ?? 0) + dx / viewport.zoom;
-        const newY = (drag.startPanelY ?? 0) + dy / viewport.zoom;
-        movePanel(drag.panelId, { x: newX, y: newY });
+        const rawX = (drag.startPanelX ?? 0) + dx / viewport.zoom;
+        const rawY = (drag.startPanelY ?? 0) + dy / viewport.zoom;
+        const draggedPanel = panels.find((p) => p.id === drag.panelId);
+        if (draggedPanel) {
+          const otherRects = panels
+            .filter((p) => p.id !== drag.panelId)
+            .map((p) => ({ x: p.position.x, y: p.position.y, w: p.size.width, h: p.size.height }));
+          const viewportRect = {
+            x: viewport.x,
+            y: viewport.y,
+            w: window.innerWidth / viewport.zoom,
+            h: window.innerHeight / viewport.zoom,
+          };
+          const result = snap({
+            dragRect: { x: rawX, y: rawY, w: draggedPanel.size.width, h: draggedPanel.size.height },
+            otherRects,
+            viewportRect,
+            zoom: viewport.zoom,
+            thresholdPx: 8,
+            disabled: cmdHeldRef.current,
+          });
+          setSnapGuides(result.guides);
+          movePanel(drag.panelId, { x: result.rect.x, y: result.rect.y });
+        }
       } else if (drag.type === 'resize' && drag.panelId) {
         const newW = Math.max(150, (drag.startPanelW ?? 0) + dx / viewport.zoom);
         const newH = Math.max(100, (drag.startPanelH ?? 0) + dy / viewport.zoom);
@@ -177,6 +219,7 @@ export const Canvas: React.FC<CanvasProps> = ({ background }) => {
 
     const handleMouseUp = () => {
       dragStateRef.current = { type: null, startX: 0, startY: 0 };
+      setSnapGuides([]);
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -320,6 +363,7 @@ export const Canvas: React.FC<CanvasProps> = ({ background }) => {
       )}
 
       <ZoomIndicator />
+      <SnapGuides guides={snapGuides} viewport={viewport} />
     </div>
   );
 };
