@@ -99,3 +99,42 @@ describe('canvas store undo/redo', () => {
     expect(useCanvasStore.getState().viewport.x).toBe(0);
   });
 });
+
+describe('layout mode defaults', () => {
+  beforeEach(() => {
+    useCanvasStore.setState({
+      panels: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+      selectedPanelIds: [],
+      past: [],
+      future: [],
+    });
+  });
+
+  it('defaults to canvas mode when loading state without layoutMode', () => {
+    const stateWithoutMode = {
+      panels: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+      selectedPanelIds: [],
+      workspaceName: 'test',
+      lastUpdated: Date.now(),
+    } as any;
+    useCanvasStore.getState().initialize(stateWithoutMode);
+    expect(useCanvasStore.getState().layoutMode).toBe('canvas');
+    expect(useCanvasStore.getState().gridTree).toBeUndefined();
+  });
+
+  it('preserves layoutMode when loading state that has it', () => {
+    const stateWithMode = {
+      panels: [],
+      viewport: { x: 0, y: 0, zoom: 1 },
+      selectedPanelIds: [],
+      workspaceName: 'test',
+      lastUpdated: Date.now(),
+      layoutMode: 'grid' as const,
+      gridTree: undefined,
+    };
+    useCanvasStore.getState().initialize(stateWithMode);
+    expect(useCanvasStore.getState().layoutMode).toBe('grid');
+  });
+});

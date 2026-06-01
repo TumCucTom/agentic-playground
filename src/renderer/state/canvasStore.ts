@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { CanvasState, Panel, PanelPosition, Viewport } from '../../shared/types';
+import { CanvasState, Panel, PanelPosition, Viewport, LayoutMode, SplitTree } from '../../shared/types';
 
 const MAX_HISTORY = 50;
 const HISTORY_COALESCE_MS = 100;
@@ -8,6 +8,8 @@ interface HistoryEntry {
   panels: Panel[];
   viewport: Viewport;
   selectedPanelIds: string[];
+  layoutMode: LayoutMode;
+  gridTree?: SplitTree;
   timestamp: number;
 }
 
@@ -29,6 +31,10 @@ export interface CanvasStore extends CanvasState {
   zoomViewport: (factor: number, centerX?: number, centerY?: number) => void;
   setPanelState: (id: string, state: 'idle' | 'running') => void;
   applyOneBigNSmall: (ids: string[]) => void;
+  setLayoutMode: (mode: LayoutMode) => void;
+  splitFocused: (dir: 'h' | 'v', newPanel: Panel) => void;
+  resizeDivider: (leafPath: number[], ratio: number) => void;
+  closeLeaf: (panelId: string) => void;
   markClean: () => void;
   serialize: () => CanvasState;
   undo: () => void;
@@ -39,11 +45,24 @@ export interface CanvasStore extends CanvasState {
 
 let maxZOrder = 0;
 
-function snapshot(s: { panels: Panel[]; viewport: Viewport; selectedPanelIds: string[] }): HistoryEntry {
+function cloneTree(tree: SplitTree): SplitTree {
+  if (tree.kind === 'leaf') return { kind: 'leaf', panelId: tree.panelId };
+  return { kind: 'split', dir: tree.dir, ratio: tree.ratio, a: cloneTree(tree.a), b: cloneTree(tree.b) };
+}
+
+function snapshot(s: {
+  panels: Panel[];
+  viewport: Viewport;
+  selectedPanelIds: string[];
+  layoutMode: LayoutMode;
+  gridTree?: SplitTree;
+}): HistoryEntry {
   return {
     panels: s.panels.map((p) => ({ ...p, position: { ...p.position }, size: { ...p.size } })),
     viewport: { ...s.viewport },
     selectedPanelIds: [...s.selectedPanelIds],
+    layoutMode: s.layoutMode,
+    gridTree: s.gridTree ? cloneTree(s.gridTree) : undefined,
     timestamp: Date.now(),
   };
 }
@@ -73,13 +92,22 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
     selectedPanelIds: [],
     workspaceName: 'default',
     lastUpdated: Date.now(),
+    layoutMode: 'canvas',
+    gridTree: undefined,
     isDirty: false,
     past: [],
     future: [],
 
     initialize: (state) => {
       maxZOrder = state.panels.reduce((max, p) => Math.max(max, p.zOrder), 0);
-      set({ ...state, isDirty: false, past: [], future: [] });
+      set({
+        ...state,
+        layoutMode: state.layoutMode ?? 'canvas',
+        gridTree: state.gridTree,
+        isDirty: false,
+        past: [],
+        future: [],
+      });
     },
 
     addPanel: (panel) => {
@@ -221,9 +249,14 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
     markClean: () => set({ isDirty: false }),
 
     serialize: () => {
-      const { panels, viewport, selectedPanelIds, workspaceName, lastUpdated } = get();
-      return { panels, viewport, selectedPanelIds, workspaceName, lastUpdated };
+      const { panels, viewport, selectedPanelIds, workspaceName, lastUpdated, layoutMode, gridTree } = get();
+      return { panels, viewport, selectedPanelIds, workspaceName, lastUpdated, layoutMode, gridTree };
     },
+
+    setLayoutMode: (_mode) => { /* implemented in Task 5 */ },
+    splitFocused: (_dir, _panel) => { /* implemented in Task 11 */ },
+    resizeDivider: (_path, _ratio) => { /* implemented in Task 5 */ },
+    closeLeaf: (_id) => { /* implemented in Task 11 */ },
 
     undo: () => {
       const { past } = get();
@@ -238,6 +271,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
         panels: previous.panels,
         viewport: previous.viewport,
         selectedPanelIds: previous.selectedPanelIds,
+        layoutMode: previous.layoutMode,
+        gridTree: previous.gridTree,
         past: remaining,
         future: [...get().future, current],
         isDirty: true,
@@ -256,6 +291,8 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
         panels: next.panels,
         viewport: next.viewport,
         selectedPanelIds: next.selectedPanelIds,
+        layoutMode: next.layoutMode,
+        gridTree: next.gridTree,
         past: [...get().past, current],
         future: remaining,
         isDirty: true,
