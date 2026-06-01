@@ -1,0 +1,252 @@
+import React, { useState, useRef, useEffect } from 'react';
+import { Panel as PanelType } from '../shared/types';
+import { useCanvasStore } from './state/canvasStore';
+import { TerminalPanel } from './panels/Terminal';
+import { EditorPanel } from './panels/Editor';
+import { FileExplorerPanel } from './panels/FileExplorer';
+import { WebviewPanel } from './panels/Webview';
+import { MarkdownPreviewPanel } from './panels/Markdown';
+import { ExtensionPanel } from './panels/Extension';
+
+interface PanelViewProps {
+  panel: PanelType;
+  isSelected: boolean;
+  onFocus: () => void;
+  onDragStart: (e: React.MouseEvent) => void;
+  onResizeStart: (e: React.MouseEvent, handle: string) => void;
+}
+
+export const PanelView: React.FC<PanelViewProps> = ({
+  panel,
+  isSelected,
+  onFocus,
+  onDragStart,
+  onResizeStart,
+}) => {
+  const [isDragging, setIsDragging] = useState(false);
+  const deletePanel = useCanvasStore((s) => s.deletePanel);
+  const setPanelState = useCanvasStore((s) => s.setPanelState);
+
+  const handleTitleBarMouseDown = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    if ((e.target as HTMLElement).closest('.panel-close, .panel-state-toggle')) return;
+    e.stopPropagation();
+    onFocus();
+    onDragStart(e);
+    setIsDragging(true);
+  };
+
+  useEffect(() => {
+    if (!isDragging) return;
+    const up = () => setIsDragging(false);
+    window.addEventListener('mouseup', up);
+    return () => window.removeEventListener('mouseup', up);
+  }, [isDragging]);
+
+  const handleClose = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    deletePanel(panel.id);
+  };
+
+  const toggleState = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setPanelState(panel.id, panel.state === 'running' ? 'idle' : 'running');
+  };
+
+  const stateColor = panel.state === 'running' ? '#ffa500' : '#3a3a3a';
+  const stateTitle =
+    panel.state === 'running'
+      ? 'Running — click to mark idle'
+      : 'Idle — click to mark running';
+
+  return (
+    <div
+      className="panel"
+      data-panel-id={panel.id}
+      style={{
+        position: 'absolute',
+        left: panel.position.x,
+        top: panel.position.y,
+        width: panel.size.width,
+        height: panel.size.height,
+        backgroundColor: '#1f1f1f',
+        border: `1px solid ${isSelected ? '#5a9fd4' : '#2a2a2a'}`,
+        borderRadius: 6,
+        boxShadow: isSelected
+          ? '0 0 0 1px #5a9fd4, 0 4px 16px rgba(0, 0, 0, 0.4)'
+          : '0 2px 8px rgba(0, 0, 0, 0.3)',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+        zIndex: panel.zOrder,
+        cursor: isDragging ? 'grabbing' : 'default',
+      }}
+      onMouseDown={(e) => {
+        if (e.button === 0 && e.target === e.currentTarget) {
+          e.stopPropagation();
+          onFocus();
+        }
+      }}
+    >
+      <div
+        className="panel-titlebar"
+        onMouseDown={handleTitleBarMouseDown}
+        style={{
+          height: 28,
+          backgroundColor: '#252525',
+          borderBottom: '1px solid #2a2a2a',
+          display: 'flex',
+          alignItems: 'center',
+          paddingLeft: 10,
+          paddingRight: 6,
+          cursor: isDragging ? 'grabbing' : 'grab',
+          flexShrink: 0,
+          gap: 8,
+        }}
+      >
+        <button
+          className="panel-state-toggle"
+          onClick={toggleState}
+          onMouseDown={(e) => e.stopPropagation()}
+          title={stateTitle}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            padding: 0,
+            cursor: 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+          }}
+        >
+          <div
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: '50%',
+              backgroundColor: stateColor,
+              boxShadow: panel.state === 'running' ? `0 0 6px ${stateColor}` : 'none',
+              flexShrink: 0,
+            }}
+          />
+        </button>
+        <div
+          style={{
+            flex: 1,
+            fontSize: 12,
+            color: '#d0d0d0',
+            fontWeight: 500,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {panel.title}
+        </div>
+        <button
+          className="panel-close"
+          onClick={handleClose}
+          onMouseDown={(e) => e.stopPropagation()}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: '#888',
+            fontSize: 16,
+            cursor: 'pointer',
+            padding: '0 6px',
+            lineHeight: 1,
+            borderRadius: 3,
+          }}
+          onMouseEnter={(e) => (e.currentTarget.style.backgroundColor = '#3a3a3a')}
+          onMouseLeave={(e) => (e.currentTarget.style.backgroundColor = 'transparent')}
+        >
+          ×
+        </button>
+      </div>
+
+      <div
+        className="panel-content"
+        style={{
+          flex: 1,
+          overflow: 'hidden',
+          position: 'relative',
+        }}
+      >
+        <PanelContent panel={panel} />
+      </div>
+
+      <ResizeHandle
+        position="se"
+        onMouseDown={(e) => {
+          e.stopPropagation();
+          onResizeStart(e, 'se');
+        }}
+      />
+    </div>
+  );
+};
+
+const PanelContent: React.FC<{ panel: PanelType }> = ({ panel }) => {
+  switch (panel.type) {
+    case 'terminal':
+      return <TerminalPanel panel={panel} />;
+    case 'editor':
+      return <EditorPanel panel={panel} />;
+    case 'fileExplorer':
+      return <FileExplorerPanel panel={panel} />;
+    case 'webview':
+      return <WebviewPanel panel={panel} />;
+    case 'markdownPreview':
+      return <MarkdownPreviewPanel panel={panel} />;
+    case 'extension':
+      return <ExtensionPanel panel={panel} />;
+    case 'embedded':
+      return (
+        <div style={{ padding: 16, color: '#888', fontSize: 12 }}>
+          Embedded app (Phase 2)
+        </div>
+      );
+    default:
+      return <div style={{ padding: 16, color: '#888' }}>Unknown panel type</div>;
+  }
+};
+
+const ResizeHandle: React.FC<{
+  position: 'se' | 'e' | 's';
+  onMouseDown: (e: React.MouseEvent) => void;
+}> = ({ position, onMouseDown }) => {
+  const style: React.CSSProperties =
+    position === 'se'
+      ? {
+          position: 'absolute',
+          right: 0,
+          bottom: 0,
+          width: 12,
+          height: 12,
+          cursor: 'nwse-resize',
+        }
+      : position === 'e'
+      ? {
+          position: 'absolute',
+          right: 0,
+          top: 28,
+          bottom: 12,
+          width: 6,
+          cursor: 'ew-resize',
+        }
+      : {
+          position: 'absolute',
+          left: 0,
+          right: 12,
+          bottom: 0,
+          height: 6,
+          cursor: 'ns-resize',
+        };
+
+  return (
+    <div
+      className={`resize-handle resize-${position}`}
+      onMouseDown={onMouseDown}
+      style={style}
+    />
+  );
+};

@@ -1,0 +1,22 @@
+{
+  "id": "canvas-notes",
+  "name": "Canvas Notes",
+  "version": "0.1.0",
+  "publisher": "canvas-workspace",
+  "main": "index.js",
+  "contributes": {
+    "webviews": [
+      {
+        "id": "notes",
+        "title": "Notes",
+        "icon": "📝"
+      }
+    ],
+    "commands": [
+      {
+        "command": "canvas-notes.addNote",
+        "title": "Add Note"
+      }
+    ]
+  }
+}
