@@ -85,6 +85,8 @@ const api = {
     target: { x: number; y: number; width: number; height: number }
   ): Promise<{ ok: boolean; pid?: number; error?: string }> =>
     ipcRenderer.invoke('app:reparent', { bundleId, target }),
+  openSystemSettings: (pane: 'accessibility' | 'screenRecording'): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke('system:openSettings', pane),
   on: (channel: string, listener: (event: IpcRendererEvent, ...args: any[]) => void) => {
     ipcRenderer.on(channel, listener);
   },

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, IpcMainInvokeEvent, desktopCapturer, session } from 'electron';
+import { app, BrowserWindow, ipcMain, IpcMainInvokeEvent, desktopCapturer, session, shell } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -566,6 +566,27 @@ function registerIpcHandlers(): void {
           return { ok: true, pid: Number(m[1]) };
         }
         return { ok: false, error: `Unexpected helper output: ${stdout}` };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
+    }
+  );
+
+  // Open a system preferences pane by URL. Used by the App Launcher
+  // panel to deep-link into the Accessibility settings when the
+  // reparent helper fails for permission reasons.
+  ipcMain.handle(
+    'system:openSettings',
+    async (_event, pane: string) => {
+      const allowed: Record<string, string> = {
+        accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility',
+        screenRecording: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
+      };
+      const url = allowed[pane];
+      if (!url) return { ok: false, error: `Unknown pane: ${pane}` };
+      try {
+        await shell.openExternal(url);
+        return { ok: true };
       } catch (err) {
         return { ok: false, error: (err as Error).message };
       }

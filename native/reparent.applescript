@@ -40,17 +40,32 @@ on run argv
     return "error: invalid pid '" & pidStr & "'"
   end try
 
-  -- Poll for the app's first window to appear (up to 5s). Cold-launched
-  -- apps can take 1-2s to register a window with the Window Server.
+  -- Poll for the app's first window to appear (up to 10s). Cold-
+  -- launched apps can take 1-2s to register a window with the Window
+  -- Server, and a few more seconds for System Events' AX tree to
+  -- catch up. We try the position+size write on every poll so a
+  -- window that flickers into existence is caught the same tick.
   set foundWindow to false
   set attempts to 0
+  set maxAttempts to 100
+  set procSeen to false
   tell application "System Events"
-    repeat while (not foundWindow) and (attempts < 50)
+    repeat while (not foundWindow) and (attempts < maxAttempts)
       try
         set p to (first process whose unix id is targetPid)
+        set procSeen to true
         if (count of windows of p) > 0 then
-          set foundWindow to true
-          exit repeat
+          try
+            set position of window 1 of p to {targetX, targetY}
+            set size of window 1 of p to {targetW, targetH}
+            set foundWindow to true
+            exit repeat
+          on error writeErr
+            -- Window exists but AX write was rejected. Likely
+            -- Accessibility permission is missing for System Events.
+            -- Don't keep retrying — it'll fail the same way.
+            return "error: pid " & pidStr & " has a window but System Events could not move it (" & writeErr & "). Grant Accessibility to System Events (System Settings → Privacy & Security → Accessibility)."
+          end try
         end if
       on error
         -- Process not registered yet, or its window list is empty.
@@ -62,18 +77,11 @@ on run argv
     end repeat
 
     if not foundWindow then
-      return "error: window for pid " & pidStr & " did not appear within 5s"
-    end if
-
-    -- Position and size the window. System Events uses top-left
-    -- origin, which matches what the renderer already passes.
-    try
-      set p to (first process whose unix id is targetPid)
-      set position of window 1 of p to {targetX, targetY}
-      set size of window 1 of p to {targetW, targetH}
-    on error errMsg
-      return "error: failed to set position/size: " & errMsg
-    end try
+      if procSeen then
+        return "error: pid " & pidStr & " is running but has no windows System Events can see. Grant Accessibility to System Events (System Settings → Privacy & Security → Accessibility)."
+      end if
+      return "error: window for pid " & pidStr & " did not appear within 10s"
+    end
   end tell
 
   return "ok " & pidStr

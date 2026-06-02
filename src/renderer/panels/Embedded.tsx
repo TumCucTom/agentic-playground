@@ -820,6 +820,23 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
             {reparentError}
           </span>
+          {reparentError.includes('Accessibility') && (
+            <button
+              onClick={() => void window.canvasAPI.openSystemSettings('accessibility')}
+              style={{
+                background: 'rgba(255, 255, 255, 0.15)',
+                border: 'none',
+                color: '#ffd0d0',
+                cursor: 'pointer',
+                padding: '2px 6px',
+                fontSize: 10,
+                borderRadius: 2,
+                fontFamily: 'inherit',
+              }}
+            >
+              Open Settings
+            </button>
+          )}
           <button
             onClick={() => setReparentError(null)}
             aria-label="Dismiss"
