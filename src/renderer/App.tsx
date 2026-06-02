@@ -238,23 +238,36 @@ const TitleBar: React.FC<{
         height: 28,
         backgroundColor: '#1a1a1a',
         borderBottom: '1px solid #2a2a2a',
-        WebkitAppRegion: 'drag',
-        display: 'flex',
-        alignItems: 'center',
-        paddingLeft: 80,
-        paddingRight: 14,
-        fontSize: 12,
-        color: '#888',
         zIndex: 2000,
-        gap: 8,
       }}
     >
-      <span>Canvas Workspace</span>
-      <span style={{ color: '#666' }}>·</span>
-      <span>{workspaceName}</span>
-      <div style={{ marginLeft: 'auto', WebkitAppRegion: 'no-drag', display: 'flex', gap: 8, alignItems: 'center' }}>
-        <LayoutModeToggle />
-        <BackgroundPicker mode={background} onChange={onBackgroundChange} />
+      {/* Drag region for moving the window. Offset 5px from the top so
+          the OS resize handle at the very top of the window stays free
+          — covering it with a drag region blocks window resize. */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 5,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          WebkitAppRegion: 'drag',
+          display: 'flex',
+          alignItems: 'center',
+          paddingLeft: 80,
+          paddingRight: 14,
+          fontSize: 12,
+          color: '#888',
+          gap: 8,
+        }}
+      >
+        <span>Canvas Workspace</span>
+        <span style={{ color: '#666' }}>·</span>
+        <span>{workspaceName}</span>
+        <div style={{ marginLeft: 'auto', WebkitAppRegion: 'no-drag', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <LayoutModeToggle />
+          <BackgroundPicker mode={background} onChange={onBackgroundChange} />
+        </div>
       </div>
     </div>
   );
