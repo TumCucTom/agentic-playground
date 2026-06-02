@@ -125,6 +125,13 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
   const [reparentError, setReparentError] = useState<string | null>(null);
   const [lastMirror, setLastMirror] = useState<string | null>(null);
   const [launching, setLaunching] = useState(false);
+  // macOS Screen Recording grant status. 'unknown' until we ask, then
+  // 'granted' / 'denied' / 'restricted'. When denied, both the launch
+  // and mirror flows silently fail because desktopCapturer.getSources
+  // returns an empty array and getUserMedia with chromeMediaSource
+  // fails — we surface this with a banner so the user knows what to
+  // grant.
+  const [screenAccess, setScreenAccess] = useState<'unknown' | 'granted' | 'denied' | 'restricted'>('unknown');
 
   useEffect(() => {
     return () => {
@@ -179,6 +186,20 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
     });
   }, [stopStream]);
 
+  // Probe macOS Screen Recording permission. desktopCapturer is starved
+  // by TCC if it's not granted, so a "denied" status here means
+  // everything below (mirror-existing, the launch-polling, the
+  // reparent helper) will be dead in the water until the user opens
+  // System Settings and grants it.
+  const checkScreenAccess = useCallback(async () => {
+    try {
+      const r = await window.canvasAPI.checkMediaAccess('screen');
+      if (r.ok && r.status) setScreenAccess(r.status as typeof screenAccess);
+    } catch {
+      // ignore — fall back to 'unknown'
+    }
+  }, []);
+
   // Stream a specific desktopCapturer source by its id. The main process
   // registered setDisplayMediaRequestHandler which returns a stream for
   // the first window. To target a specific source we issue a new
@@ -201,9 +222,12 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
       } catch (err) {
         setError((err as Error).message);
         setStreaming(false);
+        // getUserMedia may fail because Screen Recording hasn't been
+        // granted yet — re-probe so the permission banner shows up.
+        void checkScreenAccess();
       }
     },
-    [attachStream, prefs.frameRate]
+    [attachStream, prefs.frameRate, checkScreenAccess]
   );
 
   const startPicker = useCallback(async () => {
@@ -357,9 +381,12 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
     }
   }, []);
 
+
+
   useEffect(() => {
     void refreshSources();
-  }, [refreshSources]);
+    void checkScreenAccess();
+  }, [refreshSources, checkScreenAccess]);
 
   // Group sources by app id; filter to one window per app by default to
   // keep the sidebar tidy, but show "more windows" count.
@@ -442,6 +469,66 @@ export const EmbeddedPanel: React.FC<Props> = ({ panel }) => {
               "Mirror existing" to capture a window that's already open.
             </div>
           </div>
+
+          {screenAccess === 'denied' && (
+            <div
+              data-testid="embedded-screen-permission"
+              style={{
+                marginBottom: 12,
+                padding: 10,
+                background: 'rgba(120, 40, 40, 0.4)',
+                border: '1px solid #8a3a3a',
+                borderRadius: 6,
+                color: '#ffd0d0',
+                fontSize: 11,
+                lineHeight: 1.45,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 6,
+              }}
+            >
+              <div style={{ fontWeight: 500 }}>
+                Screen Recording permission required
+              </div>
+              <div>
+                macOS blocks <code>desktopCapturer</code> until Canvas
+                Workspace is granted Screen Recording. Both "Mirror
+                existing" and the launch → stream flow need it.
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button
+                  onClick={() => void window.canvasAPI.openSystemSettings('screenRecording')}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.12)',
+                    border: 'none',
+                    color: '#ffd0d0',
+                    cursor: 'pointer',
+                    padding: '4px 10px',
+                    fontSize: 11,
+                    borderRadius: 3,
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Open Settings
+                </button>
+                <button
+                  onClick={() => void checkScreenAccess()}
+                  style={{
+                    background: 'transparent',
+                    border: '1px solid #8a3a3a',
+                    color: '#ffd0d0',
+                    cursor: 'pointer',
+                    padding: '4px 10px',
+                    fontSize: 11,
+                    borderRadius: 3,
+                    fontFamily: 'inherit',
+                  }}
+                >
+                  Re-check
+                </button>
+              </div>
+            </div>
+          )}
 
           <div
             style={{

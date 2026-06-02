@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, IpcMainInvokeEvent, desktopCapturer, session, shell } from 'electron';
+import { app, BrowserWindow, ipcMain, IpcMainInvokeEvent, desktopCapturer, session, shell, systemPreferences } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -587,6 +587,22 @@ function registerIpcHandlers(): void {
       try {
         await shell.openExternal(url);
         return { ok: true };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
+    }
+  );
+
+  // Report the current macOS TCC grant for the given media type. The
+  // App Launcher panel uses this to surface a clear "Screen Recording
+  // not granted" banner instead of silently showing an empty window
+  // list when desktopCapturer is starved by TCC.
+  ipcMain.handle(
+    'system:mediaAccess',
+    async (_event, mediaType: 'screen' | 'microphone' | 'camera') => {
+      try {
+        const status = systemPreferences.getMediaAccessStatus(mediaType);
+        return { ok: true, status };
       } catch (err) {
         return { ok: false, error: (err as Error).message };
       }
