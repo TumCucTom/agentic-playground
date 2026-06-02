@@ -17,10 +17,21 @@ export const TerminalPanel: React.FC<Props> = ({ panel }) => {
   const [error, setError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const setPanelState = useCanvasStore((s) => s.setPanelState);
+  const updatePanel = useCanvasStore((s) => s.updatePanel);
 
   const ref = panel.content.type === 'terminal' ? panel.content.ref : null;
   const ptyId = ptyIdRef.current; // Used by cleanup
   void ptyId;
+
+  // Mac Terminal.app's default title is "user — shell — cols×rows". We
+  // don't have the user/host handy in the renderer without a new IPC,
+  // so we go with "shell — cols×rows" — the same shape, minus the user
+  // segment. Updated on mount and on resize so the title reflects the
+  // current terminal size.
+  const formatTitle = (cols: number, rows: number): string => {
+    const shellName = (ref?.shell ?? '/bin/zsh').split('/').pop() || 'shell';
+    return `${shellName} — ${cols}×${rows}`;
+  };
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -57,6 +68,11 @@ export const TerminalPanel: React.FC<Props> = ({ panel }) => {
     const rafId = requestAnimationFrame(initialFit);
     termRef.current = term;
     fitRef.current = fit;
+
+    // Seed the panel title with the default size so the user sees
+    // "zsh — 80×24" (or whatever) immediately, before the first
+    // ResizeObserver tick gives us the real dimensions.
+    updatePanel(panel.id, { title: formatTitle(ref?.cols ?? 80, ref?.rows ?? 24) });
 
     let cancelled = false;
     let unsubscribeData: (() => void) | null = null;
@@ -118,8 +134,11 @@ export const TerminalPanel: React.FC<Props> = ({ panel }) => {
       try {
         fit.fit();
         const dims = fit.proposeDimensions();
-        if (dims && ptyIdRef.current) {
-          void window.canvasAPI.ptyResize(ptyIdRef.current, dims.cols, dims.rows);
+        if (dims) {
+          updatePanel(panel.id, { title: formatTitle(dims.cols, dims.rows) });
+          if (ptyIdRef.current) {
+            void window.canvasAPI.ptyResize(ptyIdRef.current, dims.cols, dims.rows);
+          }
         }
       } catch {
         // ignore
@@ -144,7 +163,7 @@ export const TerminalPanel: React.FC<Props> = ({ panel }) => {
       termRef.current = null;
       fitRef.current = null;
     };
-  }, [panel.id, setPanelState, ref?.shell, ref?.cwd, ref?.cols, ref?.rows]);
+  }, [panel.id, setPanelState, updatePanel, ref?.shell, ref?.cwd, ref?.cols, ref?.rows]);
 
   if (error) {
     return (
