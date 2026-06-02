@@ -10,9 +10,13 @@ const DEFAULT_SIZE = { width: 500, height: 360 };
 // directory. The file explorer can navigate from there.
 const DEFAULT_ROOT_PATH = '~';
 
+export interface CreatePanelOptions {
+  url?: string;
+}
+
 const FACTORIES: Record<
   PanelType,
-  (x: number, y: number) => { title: string; content: ContentRef }
+  (x: number, y: number, opts?: CreatePanelOptions) => { title: string; content: ContentRef }
 > = {
   terminal: (x, y) => ({
     title: 'Terminal',
@@ -34,10 +38,13 @@ const FACTORIES: Record<
     title: 'Files',
     content: { type: 'fileExplorer', ref: { rootPath: DEFAULT_ROOT_PATH } },
   }),
-  webview: (x, y) => ({
-    title: 'Web',
-    content: { type: 'webview', ref: { url: 'https://example.com' } },
-  }),
+  webview: (x, y, opts) => {
+    const url = opts?.url ?? 'https://example.com';
+    return {
+      title: url,
+      content: { type: 'webview', ref: { url } },
+    };
+  },
   markdownPreview: (x, y) => ({
     title: 'Markdown',
     content: { type: 'markdownPreview', ref: { filePath: '' } },
@@ -55,12 +62,17 @@ const FACTORIES: Record<
   }),
 };
 
-export function createPanelOfType(type: PanelType, canvasX: number, canvasY: number): Panel {
+export function createPanelOfType(
+  type: PanelType,
+  canvasX: number,
+  canvasY: number,
+  opts?: CreatePanelOptions
+): Panel {
   const factory = FACTORIES[type];
   if (!factory) {
     throw new Error(`Unknown panel type: ${type}`);
   }
-  const { title, content } = factory(canvasX, canvasY);
+  const { title, content } = factory(canvasX, canvasY, opts);
   return {
     id: uuid(),
     type,
