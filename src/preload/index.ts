@@ -87,6 +87,7 @@ const api = {
     ipcRenderer.invoke('app:reparent', { bundleId, target }),
   openSystemSettings: (pane: 'accessibility' | 'screenRecording'): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('system:openSettings', pane),
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
   checkMediaAccess: (mediaType: 'screen' | 'microphone' | 'camera'): Promise<{ ok: boolean; status?: string; error?: string }> =>
     ipcRenderer.invoke('system:mediaAccess', mediaType),
   on: (channel: string, listener: (event: IpcRendererEvent, ...args: any[]) => void) => {

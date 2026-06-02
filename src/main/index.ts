@@ -593,6 +593,19 @@ function registerIpcHandlers(): void {
     }
   );
 
+  // Forward a URL to the user's default browser. Used by the webview
+  // panel's `new-window` event (target=_blank, window.open) and the
+  // URL bar's "pop out" button — we don't want to spawn extra Electron
+  // windows for either flow.
+  ipcMain.handle('shell:openExternal', async (_event, url: string) => {
+    if (typeof url !== 'string' || !url) return;
+    try {
+      await shell.openExternal(url);
+    } catch (err) {
+      console.error('shell:openExternal failed for', url, err);
+    }
+  });
+
   // Report the current macOS TCC grant for the given media type. The
   // App Launcher panel uses this to surface a clear "Screen Recording
   // not granted" banner instead of silently showing an empty window
@@ -655,6 +668,10 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // <webview> tag is enabled for the App Launcher pivot. Per-webview
+      // flags (e.g. contextIsolation, sandbox) are set on the JSX in
+      // Webview.tsx so each embedded app gets its own session partition.
+      webviewTag: true,
     },
   });
 
