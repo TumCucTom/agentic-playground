@@ -26,6 +26,11 @@ export interface CanvasStore extends CanvasState {
   isDirty: boolean;
   past: HistoryEntry[];
   future: HistoryEntry[];
+  // Cached list of session names known to the renderer. Populated by
+  // refreshSessions() and after any session-mutating action. The
+  // active session is `workspaceName` — same field, just the renderer
+  // term is "session" while the storage layer says "workspace".
+  sessions: string[];
   // Public API
   initialize: (state: CanvasState) => void;
   addPanel: (panel: Panel) => void;
@@ -52,6 +57,17 @@ export interface CanvasStore extends CanvasState {
   redo: () => void;
   canUndo: () => boolean;
   canRedo: () => boolean;
+  // Session actions. All async; the renderer awaits the promise and
+  // surfaces the error in the menu's UI rather than throwing. The
+  // state mutation only happens on success.
+  refreshSessions: () => Promise<void>;
+  saveSessionAs: (name: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  switchToSession: (name: string) => Promise<{ ok: true } | { ok: false; error: string }>;
+  renameSession: (
+    oldName: string,
+    newName: string
+  ) => Promise<{ ok: true; name: string } | { ok: false; error: string }>;
+  deleteSession: (name: string) => Promise<{ ok: true } | { ok: false; error: string }>;
 }
 
 let maxZOrder = 0;
@@ -108,6 +124,7 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
     isDirty: false,
     past: [],
     future: [],
+    sessions: [],
 
     initialize: (state) => {
       maxZOrder = state.panels.reduce((max, p) => Math.max(max, p.zOrder), 0);
@@ -263,6 +280,56 @@ export const useCanvasStore = create<CanvasStore>((set, get) => {
     },
 
     markClean: () => set({ isDirty: false }),
+
+    refreshSessions: async () => {
+      const names = await window.canvasAPI.listSessions();
+      set({ sessions: names });
+    },
+
+    saveSessionAs: async (name) => {
+      // Snapshot the *current* state, not whatever was last
+      // auto-saved — the user just hit "Save Session" precisely
+      // because the auto-saved file doesn't capture their latest
+      // edits. `serialize()` returns the in-memory state.
+      const state = get().serialize();
+      const result = await window.canvasAPI.saveSessionAs(name, state);
+      if (result.ok) {
+        await get().refreshSessions();
+      }
+      return result;
+    },
+
+    switchToSession: async (name) => {
+      try {
+        const state = await window.canvasAPI.switchSession(name);
+        get().initialize(state);
+        await get().refreshSessions();
+        return { ok: true };
+      } catch (err) {
+        return { ok: false, error: (err as Error).message };
+      }
+    },
+
+    renameSession: async (oldName, newName) => {
+      const result = await window.canvasAPI.renameSession(oldName, newName);
+      if (result.ok) {
+        // The active session's name may have changed — keep the
+        // renderer's view in sync.
+        if (get().workspaceName === oldName) {
+          set({ workspaceName: result.name });
+        }
+        await get().refreshSessions();
+      }
+      return result;
+    },
+
+    deleteSession: async (name) => {
+      const result = await window.canvasAPI.deleteSession(name);
+      if (result.ok) {
+        await get().refreshSessions();
+      }
+      return result;
+    },
 
     serialize: () => {
       const { panels, viewport, selectedPanelIds, workspaceName, lastUpdated, layoutMode, gridTree } = get();

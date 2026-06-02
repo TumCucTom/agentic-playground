@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Canvas } from './Canvas';
 import { Toolbox } from './Toolbox';
 import { useCanvasStore } from './state/canvasStore';
-import { CanvasAPI } from '../preload';
 import { Tooltip } from './Tooltip';
 import { LayoutModeToggle } from './layout/LayoutModeToggle';
 import {
@@ -11,12 +10,7 @@ import {
   loadBackgroundMode,
   saveBackgroundMode,
 } from './BackgroundPicker';
-
-declare global {
-  interface Window {
-    canvasAPI: CanvasAPI;
-  }
-}
+import { SessionMenu } from './SessionMenu';
 
 export const App: React.FC = () => {
   const initialize = useCanvasStore((s) => s.initialize);
