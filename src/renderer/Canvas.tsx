@@ -214,11 +214,18 @@ export const Canvas: React.FC<CanvasProps> = ({ background }) => {
         dragStateRef.current.startX = e.clientX;
         dragStateRef.current.startY = e.clientY;
       } else if (drag.type === 'move' && drag.panelId) {
+        // Read panels from the store, not the closure — this effect's
+        // deps don't include `panels`, so the closure-captured value is
+        // frozen at the last run. A panel created after the last run
+        // (e.g., a fresh terminal) would be missing from it, and
+        // `panels.find` would return undefined — silently dropping the
+        // drag for any newly-added panel.
+        const currentPanels = useCanvasStore.getState().panels;
         const rawX = (drag.startPanelX ?? 0) + dx / viewport.zoom;
         const rawY = (drag.startPanelY ?? 0) + dy / viewport.zoom;
-        const draggedPanel = panels.find((p) => p.id === drag.panelId);
+        const draggedPanel = currentPanels.find((p) => p.id === drag.panelId);
         if (draggedPanel) {
-          const otherRects = panels
+          const otherRects = currentPanels
             .filter((p) => p.id !== drag.panelId)
             .map((p) => ({ x: p.position.x, y: p.position.y, w: p.size.width, h: p.size.height }));
           const viewportRect = {

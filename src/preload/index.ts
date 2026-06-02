@@ -35,10 +35,20 @@ interface LaunchAppResult {
 const api = {
   loadCanvas: (): Promise<CanvasState> => ipcRenderer.invoke('canvas:load'),
   saveCanvas: (state: CanvasState): Promise<void> => ipcRenderer.invoke('canvas:save', state),
-  listWorkspaces: (): Promise<string[]> => ipcRenderer.invoke('workspace:list'),
-  switchWorkspace: (name: string): Promise<CanvasState> => ipcRenderer.invoke('workspace:switch', name),
-  saveWorkspace: (name: string, state: CanvasState): Promise<void> =>
-    ipcRenderer.invoke('workspace:save', name, state),
+  listSessions: (): Promise<string[]> => ipcRenderer.invoke('session:list'),
+  switchSession: (name: string): Promise<CanvasState> => ipcRenderer.invoke('session:switch', name),
+  saveSessionAs: (
+    name: string,
+    state: CanvasState
+  ): Promise<{ ok: true } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('session:saveAs', name, state),
+  renameSession: (
+    oldName: string,
+    newName: string
+  ): Promise<{ ok: true; name: string } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('session:rename', oldName, newName),
+  deleteSession: (name: string): Promise<{ ok: true } | { ok: false; error: string }> =>
+    ipcRenderer.invoke('session:delete', name),
   listExtensions: (): Promise<ExtensionManifest[]> => ipcRenderer.invoke('extension:list'),
   activateExtension: (id: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('extension:activate', id),
@@ -87,6 +97,7 @@ const api = {
     ipcRenderer.invoke('app:reparent', { bundleId, target }),
   openSystemSettings: (pane: 'accessibility' | 'screenRecording'): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke('system:openSettings', pane),
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
   checkMediaAccess: (mediaType: 'screen' | 'microphone' | 'camera'): Promise<{ ok: boolean; status?: string; error?: string }> =>
     ipcRenderer.invoke('system:mediaAccess', mediaType),
   on: (channel: string, listener: (event: IpcRendererEvent, ...args: any[]) => void) => {

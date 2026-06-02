@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Canvas } from './Canvas';
 import { Toolbox } from './Toolbox';
 import { useCanvasStore } from './state/canvasStore';
-import { CanvasAPI } from '../preload';
 import { Tooltip } from './Tooltip';
 import { LayoutModeToggle } from './layout/LayoutModeToggle';
 import {
@@ -11,18 +10,14 @@ import {
   loadBackgroundMode,
   saveBackgroundMode,
 } from './BackgroundPicker';
-
-declare global {
-  interface Window {
-    canvasAPI: CanvasAPI;
-  }
-}
+import { SessionMenu } from './SessionMenu';
 
 export const App: React.FC = () => {
   const initialize = useCanvasStore((s) => s.initialize);
   const isDirty = useCanvasStore((s) => s.isDirty);
   const markClean = useCanvasStore((s) => s.markClean);
   const serialize = useCanvasStore((s) => s.serialize);
+  const refreshSessions = useCanvasStore((s) => s.refreshSessions);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const persist = useCallback((state: ReturnType<typeof serialize>) => {
@@ -49,6 +44,10 @@ export const App: React.FC = () => {
         const state = await window.canvasAPI.loadCanvas();
         if (cancelled) return;
         initialize(state);
+        // Populate the session list so the menu can render the
+        // current name plus the rest. Cheap call; safe to fire-and-
+        // forget (refreshSessions sets state on resolve).
+        void refreshSessions();
       } catch (err) {
         console.error('Failed to load canvas state:', err);
       }
@@ -56,7 +55,7 @@ export const App: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [initialize]);
+  }, [initialize, refreshSessions]);
 
   // Auto-save with debounce
   useEffect(() => {
@@ -227,7 +226,6 @@ const TitleBar: React.FC<{
   background: BackgroundMode;
   onBackgroundChange: (mode: BackgroundMode) => void;
 }> = ({ background, onBackgroundChange }) => {
-  const workspaceName = useCanvasStore((s) => s.workspaceName);
   return (
     <div
       style={{
@@ -238,23 +236,36 @@ const TitleBar: React.FC<{
         height: 28,
         backgroundColor: '#1a1a1a',
         borderBottom: '1px solid #2a2a2a',
-        WebkitAppRegion: 'drag',
-        display: 'flex',
-        alignItems: 'center',
-        paddingLeft: 80,
-        paddingRight: 14,
-        fontSize: 12,
-        color: '#888',
         zIndex: 2000,
-        gap: 8,
       }}
     >
-      <span>Canvas Workspace</span>
-      <span style={{ color: '#666' }}>·</span>
-      <span>{workspaceName}</span>
-      <div style={{ marginLeft: 'auto', WebkitAppRegion: 'no-drag', display: 'flex', gap: 8, alignItems: 'center' }}>
-        <LayoutModeToggle />
-        <BackgroundPicker mode={background} onChange={onBackgroundChange} />
+      {/* Drag region for moving the window. Offset 5px from the top so
+          the OS resize handle at the very top of the window stays free
+          — covering it with a drag region blocks window resize. */}
+      <div
+        style={{
+          position: 'absolute',
+          top: 5,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          WebkitAppRegion: 'drag',
+          display: 'flex',
+          alignItems: 'center',
+          paddingLeft: 80,
+          paddingRight: 14,
+          fontSize: 12,
+          color: '#888',
+          gap: 8,
+        }}
+      >
+        <span>Canvas Workspace</span>
+        <span style={{ color: '#666' }}>·</span>
+        <SessionMenu />
+        <div style={{ marginLeft: 'auto', WebkitAppRegion: 'no-drag', display: 'flex', gap: 8, alignItems: 'center' }}>
+          <LayoutModeToggle />
+          <BackgroundPicker mode={background} onChange={onBackgroundChange} />
+        </div>
       </div>
     </div>
   );

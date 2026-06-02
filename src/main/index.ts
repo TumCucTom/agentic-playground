@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import { spawn, execFile } from 'child_process';
 import { CanvasState, ExtensionManifest } from '../shared/types.js';
+import { validateSessionName } from '../shared/sessionValidation.js';
 import { ExtensionHostManager } from './extensionHostManager.js';
 import { registerPtyHandlers, ptyManager } from './ptyManager.js';
 import { taskMonitor, setTaskMonitorWindow } from './taskMonitor.js';
@@ -138,6 +139,66 @@ function listWorkspaces(): string[] {
     .map((f) => f.replace(/\.json$/, ''));
 }
 
+function sessionExists(name: string): boolean {
+  return fs.existsSync(workspaceFilePath(name));
+}
+
+// Result shape for session-mutating IPC calls. `ok: false` with a
+// human-readable reason lets the renderer show a toast or inline error
+// without having to map low-level fs exceptions to UI copy.
+type SessionResult = { ok: true; [key: string]: unknown } | { ok: false; error: string };
+
+function saveSessionAs(name: string, state: CanvasState): SessionResult {
+  let cleanName: string;
+  try {
+    cleanName = validateSessionName(name);
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+  if (sessionExists(cleanName)) return { ok: false, error: `A session named "${cleanName}" already exists` };
+  saveCanvasState(cleanName, state);
+  return { ok: true };
+}
+
+function renameSession(oldName: string, newName: string): SessionResult {
+  let cleanName: string;
+  try {
+    cleanName = validateSessionName(newName);
+  } catch (err) {
+    return { ok: false, error: (err as Error).message };
+  }
+  if (!sessionExists(oldName)) return { ok: false, error: `Session "${oldName}" not found` };
+  if (oldName === cleanName) return { ok: true, name: cleanName };
+  if (sessionExists(cleanName)) return { ok: false, error: `A session named "${cleanName}" already exists` };
+  const oldPath = workspaceFilePath(oldName);
+  const newPath = workspaceFilePath(cleanName);
+  try {
+    fs.renameSync(oldPath, newPath);
+  } catch (err) {
+    return { ok: false, error: `Rename failed: ${(err as Error).message}` };
+  }
+  // If the renamed session was active, update .active so auto-save
+  // resumes into the new name. (Don't change the active session
+  // otherwise — the user might have switched since the IPC fired.)
+  if (getActiveWorkspaceName() === oldName) {
+    setActiveWorkspaceName(cleanName);
+  }
+  return { ok: true, name: cleanName };
+}
+
+function deleteSession(name: string): SessionResult {
+  if (!sessionExists(name)) return { ok: false, error: `Session "${name}" not found` };
+  if (getActiveWorkspaceName() === name) {
+    return { ok: false, error: 'Cannot delete the active session — switch to another first' };
+  }
+  try {
+    fs.unlinkSync(workspaceFilePath(name));
+  } catch (err) {
+    return { ok: false, error: `Delete failed: ${(err as Error).message}` };
+  }
+  return { ok: true };
+}
+
 function loadExtensions(): ExtensionManifest[] {
   if (!fs.existsSync(extensionsDir)) return [];
   const manifests: ExtensionManifest[] = [];
@@ -248,17 +309,50 @@ function registerIpcHandlers(): void {
     saveCanvasState(getActiveWorkspaceName(), state);
   });
 
-  ipcMain.handle('workspace:list', async () => {
+  ipcMain.handle('session:list', async () => {
     return listWorkspaces();
   });
 
-  ipcMain.handle('workspace:switch', async (_event: IpcMainInvokeEvent, name: string) => {
-    setActiveWorkspaceName(name);
-    return loadCanvasState(name);
+  // Switches the active session and returns its state. After this the
+  // renderer's `canvas:save` writes go to the new file, and the old
+  // one stays frozen at whatever was last persisted into it.
+  ipcMain.handle('session:switch', async (_event: IpcMainInvokeEvent, name: string) => {
+    let cleanName: string;
+    try {
+      cleanName = validateSessionName(name);
+    } catch (err) {
+      throw new Error((err as Error).message);
+    }
+    if (!sessionExists(cleanName)) {
+      // Creating on switch mirrors the "switch to a fresh named session"
+      // UX — the canvas goes blank and the name becomes active so the
+      // next auto-save creates the file.
+      setActiveWorkspaceName(cleanName);
+      return { ...emptyCanvasState(), workspaceName: cleanName };
+    }
+    setActiveWorkspaceName(cleanName);
+    return loadCanvasState(cleanName);
   });
 
-  ipcMain.handle('workspace:save', async (_event: IpcMainInvokeEvent, name: string, state: CanvasState) => {
-    saveCanvasState(name, state);
+  // Snapshot the current state to a new named file. Does NOT change
+  // the active session — the user keeps working in the active one,
+  // and the snapshot is a frozen checkpoint they can return to.
+  ipcMain.handle(
+    'session:saveAs',
+    async (_event: IpcMainInvokeEvent, name: string, state: CanvasState) => {
+      return saveSessionAs(name, state);
+    }
+  );
+
+  ipcMain.handle(
+    'session:rename',
+    async (_event: IpcMainInvokeEvent, oldName: string, newName: string) => {
+      return renameSession(oldName, newName);
+    }
+  );
+
+  ipcMain.handle('session:delete', async (_event: IpcMainInvokeEvent, name: string) => {
+    return deleteSession(name);
   });
 
   ipcMain.handle('extension:list', async () => {
@@ -593,6 +687,19 @@ function registerIpcHandlers(): void {
     }
   );
 
+  // Forward a URL to the user's default browser. Used by the webview
+  // panel's `new-window` event (target=_blank, window.open) and the
+  // URL bar's "pop out" button — we don't want to spawn extra Electron
+  // windows for either flow.
+  ipcMain.handle('shell:openExternal', async (_event, url: string) => {
+    if (typeof url !== 'string' || !url) return;
+    try {
+      await shell.openExternal(url);
+    } catch (err) {
+      console.error('shell:openExternal failed for', url, err);
+    }
+  });
+
   // Report the current macOS TCC grant for the given media type. The
   // App Launcher panel uses this to surface a clear "Screen Recording
   // not granted" banner instead of silently showing an empty window
@@ -655,6 +762,10 @@ function createWindow(): void {
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false,
+      // <webview> tag is enabled for the App Launcher pivot. Per-webview
+      // flags (e.g. contextIsolation, sandbox) are set on the JSX in
+      // Webview.tsx so each embedded app gets its own session partition.
+      webviewTag: true,
     },
   });
 
