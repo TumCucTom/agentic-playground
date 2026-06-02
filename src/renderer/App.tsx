@@ -92,6 +92,28 @@ export const App: React.FC = () => {
     return () => window.removeEventListener('keydown', handler);
   }, [persist, serialize, markClean]);
 
+  // ESC clears panel selection. Skipped when a text input, textarea,
+  // or contenteditable is focused so it doesn't interfere with the
+  // editor/terminal/rename flows that use ESC for their own purposes.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.isContentEditable ||
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA')
+      ) {
+        return;
+      }
+      e.preventDefault();
+      useCanvasStore.getState().setSelected([]);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
   // Auto-focus + auto-promote on task completion (smart orchestration)
   useEffect(() => {
     const unsubscribe = window.canvasAPI.onTaskCompleted((payload) => {
