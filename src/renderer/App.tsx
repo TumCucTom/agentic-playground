@@ -17,6 +17,7 @@ export const App: React.FC = () => {
   const isDirty = useCanvasStore((s) => s.isDirty);
   const markClean = useCanvasStore((s) => s.markClean);
   const serialize = useCanvasStore((s) => s.serialize);
+  const refreshSessions = useCanvasStore((s) => s.refreshSessions);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const persist = useCallback((state: ReturnType<typeof serialize>) => {
@@ -43,6 +44,10 @@ export const App: React.FC = () => {
         const state = await window.canvasAPI.loadCanvas();
         if (cancelled) return;
         initialize(state);
+        // Populate the session list so the menu can render the
+        // current name plus the rest. Cheap call; safe to fire-and-
+        // forget (refreshSessions sets state on resolve).
+        void refreshSessions();
       } catch (err) {
         console.error('Failed to load canvas state:', err);
       }
@@ -50,7 +55,7 @@ export const App: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [initialize]);
+  }, [initialize, refreshSessions]);
 
   // Auto-save with debounce
   useEffect(() => {
@@ -221,7 +226,6 @@ const TitleBar: React.FC<{
   background: BackgroundMode;
   onBackgroundChange: (mode: BackgroundMode) => void;
 }> = ({ background, onBackgroundChange }) => {
-  const workspaceName = useCanvasStore((s) => s.workspaceName);
   return (
     <div
       style={{
@@ -257,7 +261,7 @@ const TitleBar: React.FC<{
       >
         <span>Canvas Workspace</span>
         <span style={{ color: '#666' }}>·</span>
-        <span>{workspaceName}</span>
+        <SessionMenu />
         <div style={{ marginLeft: 'auto', WebkitAppRegion: 'no-drag', display: 'flex', gap: 8, alignItems: 'center' }}>
           <LayoutModeToggle />
           <BackgroundPicker mode={background} onChange={onBackgroundChange} />
